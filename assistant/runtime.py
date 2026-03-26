@@ -141,7 +141,8 @@ def plan_domo_action(user_input: str) -> AgentOutcome:
         )
 
     try:
-        tool_args = TOOLS[decision.tool_name].arg_model.model_validate(decision.parameters)
+        tool_args = TOOLS[decision.tool_name].arg_model.model_validate(
+            decision.parameters)
         planned_call = plan_tool_call(
             decision.tool_name, tool_args, user_input, request_id
         )
@@ -231,16 +232,16 @@ def _answer_from_local_knowledge(user_input: str) -> str | None:
             "The search workflow uses those values to discover and rank jobs."
         )
 
-    if "cleaned_job_description" in lowered or (
-        "folder structure" in lowered and "cleaned" in lowered
-    ):
-        return (
-            "If you want to start from a cleaned job description, create a folder that contains "
-            "cleaned_job_description.txt. Then run the job workflow on that folder. "
-            "The workflow will stage that cleaned file into a new output folder and generate "
-            "job_description.pdf, application_notes.txt, summary.txt, skills.txt, and sample_cv.txt. "
-            "You do not need job_description_raw.txt for that mode."
-        )
+    # if "cleaned_job_description" in lowered or (
+    #     "folder structure" in lowered and "cleaned" in lowered
+    # ):
+    #     return (
+    #         "If you want to start from a cleaned job description, create a folder that contains "
+    #         "cleaned_job_description.txt. Then run the job workflow on that folder. "
+    #         "The workflow will stage that cleaned file into a new output folder and generate "
+    #         "job_description.pdf, application_notes.txt, summary.txt, skills.txt, and sample_cv.txt. "
+    #         "You do not need job_description_raw.txt for that mode."
+    #     )
 
     if "job_description_raw" in lowered or (
         "where should i put" in lowered and "job agent" in lowered
@@ -273,7 +274,8 @@ def execute_tool_call(tool_call) -> object:
     policy = TOOL_POLICIES[tool_name]
 
     if policy.max_tool_steps < 1:
-        log_event("budget_exhausted", request_id=request_id, tool_name=tool_name)
+        log_event("budget_exhausted", request_id=request_id,
+                  tool_name=tool_name)
         raise RuntimeError("Tool step budget exhausted.")
 
     log_event(
