@@ -2,6 +2,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from assistant.config import get_paths
+
 ROOT = Path(__file__).resolve().parents[2]
 RAW_DESCRIPTION_FILE = "job_description_raw.txt"
 CLEANED_DESCRIPTION_FILE = "cleaned_job_description.txt"
@@ -17,9 +19,10 @@ from tools.job.export_job_pdf import run as export_job_pdf
 from tools.job.generate_application_materials import run as generate_application_materials
 from tools.job.models import JobState
 
-DATA_ROOT = ROOT / "data"
-JOBS_ROOT = DATA_ROOT / "jobs"
-OUTPUTS_ROOT = DATA_ROOT / "outputs"
+PATHS = get_paths()
+DATA_ROOT = PATHS["data_root"]
+JOBS_ROOT = PATHS["jobs_root"]
+OUTPUTS_ROOT = PATHS["outputs_root"]
 
 
 def build_state(job_folder: Path, output_folder: Path) -> JobState:

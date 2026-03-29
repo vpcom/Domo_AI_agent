@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from assistant.schemas import RunJobAgentArgs
-from tools.job.run_job_agent import run_job_agent
+from assistant.schemas import MatchCvArgs, RunJobAgentArgs
+from workflows.match_cv_workflow import run_match_cv_workflow
+from workflows.run_job_agent_workflow import run_job_agent_workflow
 
 
 @dataclass(frozen=True)
@@ -12,10 +13,21 @@ class ToolSpec:
     executor: Callable[..., Any]
 
 
+WORKFLOWS = {
+    "run_job_agent": run_job_agent_workflow,
+    "match_cv": run_match_cv_workflow,
+}
+
+
 TOOLS = {
     "run_job_agent": ToolSpec(
         name="run_job_agent",
         arg_model=RunJobAgentArgs,
-        executor=run_job_agent,
+        executor=WORKFLOWS["run_job_agent"],
+    ),
+    "match_cv": ToolSpec(
+        name="match_cv",
+        arg_model=MatchCvArgs,
+        executor=WORKFLOWS["match_cv"],
     ),
 }

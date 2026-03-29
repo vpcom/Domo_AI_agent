@@ -3,8 +3,9 @@ import subprocess
 import sys
 
 from assistant.audit import log_event
+from assistant.config import get_job_workflow_config
 
-SUBPROCESS_TIMEOUT_SECONDS = 300
+SUBPROCESS_TIMEOUT_SECONDS = get_job_workflow_config()["subprocess_timeout_seconds"]
 
 
 def run_job_agent(folder_path: str | None = None):

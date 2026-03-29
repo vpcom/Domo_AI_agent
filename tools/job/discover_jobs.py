@@ -6,7 +6,9 @@ from typing import Callable, Dict, List, Optional, Tuple
 import requests
 import yaml
 
+from assistant.config import get_config_path, get_display_path, get_job_search_config
 from tools.job.models import JobState
+from tools.job.text_normalization import normalize_job_posting_text
 
 REQUEST_TIMEOUT = 30
 ROLE_KEYWORDS = [
@@ -135,11 +137,17 @@ def run(state: JobState) -> None:
     save_discovered_job(state.raw_file, state.metadata_file, selected_job)
 
 
-def load_inputs_config(path: str = "inputs.yaml") -> dict:
-    with open(path, encoding="utf-8") as config_file:
-        config = yaml.safe_load(config_file)
+def load_inputs_config(path: str | None = None) -> dict:
+    if path:
+        with open(path, encoding="utf-8") as config_file:
+            config = yaml.safe_load(config_file)
+        loaded_from = path
+    else:
+        config = get_job_search_config()
+        loaded_from = get_display_path(get_config_path())
+
     print(
-        f"[discover] loaded config path={path} "
+        f"[discover] loaded config path={loaded_from} "
         f"role={config.get('role')} location={config.get('location')} "
         f"sources={config.get('sources', [])} "
         f"max_jobs={config.get('max_jobs', 1)} "
@@ -173,9 +181,12 @@ def save_discovered_job(raw_file: Path, metadata_file: Path, job: Dict[str, str]
     raw_file.parent.mkdir(parents=True, exist_ok=True)
     metadata_file.parent.mkdir(parents=True, exist_ok=True)
 
-    raw_file.write_text(job["description"], encoding="utf-8")
+    normalized_description = normalize_job_posting_text(job["description"])
+    raw_file.write_text(normalized_description, encoding="utf-8")
+    job_to_save = dict(job)
+    job_to_save["description"] = normalized_description
     with open(metadata_file, "w", encoding="utf-8") as handle:
-        json.dump(job, handle, indent=2)
+        json.dump(job_to_save, handle, indent=2)
     print(f"[discover] wrote raw_file={raw_file}")
     print(f"[discover] wrote metadata_file={metadata_file}")
 

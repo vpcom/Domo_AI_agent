@@ -9,6 +9,7 @@ description = "Domo personal assistant and job workflow tools"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+  "pypdf",
   "pydantic",
   "PyYAML",
   "reportlab",
@@ -23,4 +24,4 @@ domo-job = "tools.job.main:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["assistant*", "integrations*", "tools*"]
+include = ["assistant*", "integrations*", "tools*", "workflows*"]

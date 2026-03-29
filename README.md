@@ -35,15 +35,17 @@ Notes:
 - If you prefer the raw command, use `.venv/bin/streamlit run app/streamlit_app.py --server.port 8051`.
 - Use the `streamlit` CLI to run the app, not `python app/streamlit_app.py`.
 - Start Ollama on `http://localhost:11434` before using the assistant or the job workflow.
-- `python -m tools.job.main` with no argument runs the default ATS search using `tools/job/inputs.yaml`.
+- `python -m tools.job.main` with no argument runs the default ATS search using `domo_config.yaml`.
 - `python -m tools.job.main <folder>` accepts a folder containing either `job_description_raw.txt` or `cleaned_job_description.txt`.
-- Generated artifacts are written under `data/outputs/`.
+- Generated artifacts are written under the configured outputs folder, which defaults to `data/outputs/`.
+- Main application settings now live in `domo_config.yaml`, including paths, debug mode, Ollama settings, and job-search parameters.
 
 ## Structure
 
 ```text
 domo/
 ├── README.md
+├── domo_config.yaml
 ├── pyproject.toml
 ├── requirements.txt
 ├── run_app.sh
@@ -70,7 +72,6 @@ domo/
 │   │   ├── export_job_pdf.py
 │   │   ├── filesystem.py
 │   │   ├── generate_application_materials.py
-│   │   ├── inputs.yaml
 │   │   ├── main.py
 │   │   ├── models.py
 │   │   ├── prompts.py
@@ -87,10 +88,16 @@ domo/
 - `assistant/policy.py` validates tool arguments and restricts job folder paths to the project data roots.
 - `tools/job/run_job_agent.py` launches the job workflow through the project `.venv`.
 - `tools/job/main.py` supports three modes:
-  - no argument: search ATS sources using the parameters in `tools/job/inputs.yaml`
+  - no argument: search ATS sources using the parameters in `domo_config.yaml`
   - folder containing `job_description_raw.txt`: clean the raw job ad, generate a PDF, and generate application materials
   - folder containing `cleaned_job_description.txt`: skip cleaning and generate the remaining outputs from the cleaned text
-- Default search parameters live in `tools/job/inputs.yaml`:
+- Main configuration lives in `domo_config.yaml`, including:
+  - `debug.enabled`
+  - `paths`
+  - `ollama`
+  - `job_workflow`
+  - `job_search`
+- Job search parameters in `domo_config.yaml` include:
   - `role`
   - `location`
   - `sources`
@@ -98,8 +105,8 @@ domo/
   - `max_jobs`
   - `max_results_per_source`
   - `max_company_attempts_per_source`
-- Batch search writes discovered job inputs under `data/jobs/`.
-- Generated artifacts are written under timestamped folders in `data/outputs/`.
+- Batch search writes discovered job inputs under the configured jobs folder, which defaults to `data/jobs/`.
+- Generated artifacts are written under timestamped folders in the configured outputs folder, which defaults to `data/outputs/`.
 - Current generated files are:
   - `cleaned_job_description.txt`
   - `job_description.pdf`

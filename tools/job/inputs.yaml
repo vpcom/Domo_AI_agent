@@ -1,23 +1,3 @@
-role: Full Stack Engineer
-location: Zurich
-
-sources:
-  - greenhouse
-  - lever
-  - ashby
-
-companies:
-  greenhouse:
-    - stripe
-    - shopify
-    - notion
-  lever:
-    - figma
-    - segment
-  ashby:
-    - openai
-    - scaleai
-
-max_jobs: 2
-max_results_per_source: 5
-max_company_attempts_per_source: 15
+# Deprecated.
+# Configuration has moved to /Users/z/dev/domo/Domo_AI_agent/domo_config.yaml
+# under the `job_search` section.
