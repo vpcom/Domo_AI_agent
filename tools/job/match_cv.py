@@ -4,6 +4,15 @@ import re
 
 from assistant.config import get_paths, is_debug_enabled
 from integrations.ollama_client import call_llm
+from tools.job.job_folder_resolution import find_best_matching_job_folder
+from tools.job.local_job_inputs import (
+    CLEANED_DESCRIPTION_FILE,
+    LEGACY_CLEANED_DESCRIPTION_FILE,
+    RAW_DESCRIPTION_FILE,
+    ensure_local_job_inputs,
+    find_cleaned_job_description_file,
+)
+from tools.job.pdf_utils import extract_pdf_text
 
 
 def _normalize_whitespace(text: str) -> str:
@@ -200,29 +209,6 @@ def _interpret_llm_evaluation(response: str) -> dict:
         "repair_parsed": repair_parsed,
     }
 
-
-def extract_pdf_text(file_path: Path) -> str:
-    try:
-        from pypdf import PdfReader
-    except Exception as exc:
-        raise RuntimeError(
-            "Missing dependency: pypdf is required to extract text from PDF files. "
-            "Install it with 'pip install pypdf' in your environment."
-        ) from exc
-
-    if is_debug_enabled():
-        print(f"DEBUG: Extracting text from PDF: {file_path}")  # Debug log
-    reader = PdfReader(str(file_path))
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-        if is_debug_enabled():
-            # Debug log
-            print(
-                f"DEBUG: Extracted text from page {page}: {text[:100]}...")
-    return text.strip()
-
-
 def _resolve_path(path: Path) -> Path:
     if path.is_absolute():
         return path.resolve()
@@ -253,11 +239,9 @@ def _resolve_path(path: Path) -> Path:
     # Fuzzy search: look for directories under data/jobs whose name contains the provided name
     try:
         name = path.name
-        if jobs_root.exists() and jobs_root.is_dir():
-            matches = [p for p in jobs_root.iterdir() if p.is_dir()
-                       and name in p.name]
-            if matches:
-                return matches[0].resolve()
+        fuzzy_match = find_best_matching_job_folder(name, jobs_root)
+        if fuzzy_match is not None:
+            return fuzzy_match.resolve()
     except Exception:
         pass
 
@@ -278,20 +262,21 @@ def match_cv(job_folder: str, cvs_folder: str | None = None):
 
     # Load job text first so we can extract a short job title for logging
 
-    cleaned_file = job_path / "job_description_cleaned.txt"
-    legacy_cleaned_file = job_path / "cleaned_job_description.txt"
-    raw_file = job_path / "job_description_raw.txt"
+    ensure_local_job_inputs(job_path)
 
-    if cleaned_file.exists():
+    cleaned_file = find_cleaned_job_description_file(job_path)
+    raw_file = job_path / RAW_DESCRIPTION_FILE
+
+    if cleaned_file is not None:
         job_text = cleaned_file.read_text(encoding="utf-8")
-    elif legacy_cleaned_file.exists():
-        job_text = legacy_cleaned_file.read_text(encoding="utf-8")
     elif raw_file.exists():
         job_text = raw_file.read_text(encoding="utf-8")
     else:
         yield (
             "Error: missing job description file. Expected "
-            "`job_description_cleaned.txt` or `job_description_raw.txt`.\n"
+            f"`{LEGACY_CLEANED_DESCRIPTION_FILE}`, `{CLEANED_DESCRIPTION_FILE}`, "
+            f"`{RAW_DESCRIPTION_FILE}`, `job_description.txt`, `job description.txt`, "
+            "`job_description.pdf`, or `job description.pdf`.\n"
         )
         return
 

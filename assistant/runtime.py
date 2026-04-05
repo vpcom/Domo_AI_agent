@@ -22,15 +22,18 @@ SYSTEM_PROMPT = f"""
 You are Domo, a personal assistant with access to tools.
 
 Available tools:
-- run_job_agent(folder_path: optional string)
+- run_job_agent(folder_path: optional string, role: optional string, location: optional string, ignore_location: optional boolean, remote_only: optional boolean)
+- create_job_files(job_folder: string)
 - match_cv(job_folder: string, cvs_folder: optional string)
 
 Tool behavior:
 - run_job_agent() with no folder_path runs the default job search workflow using {CONFIG_DISPLAY_PATH}
 - that workflow searches ATS sources and ranks jobs using the configured role/location preferences
+- when the user asks for temporary search changes like a different role, a different location, remote-only, or ignoring location, pass those as run_job_agent parameters for that run
 - it also prepares application artifacts under {OUTPUTS_ROOT_DISPLAY}, including cleaned_job_description.txt, job_description.pdf, application_notes.txt, summary.txt, skills.txt, and sample_cv.txt
-- run_job_agent(folder_path="...") processes an existing local job folder containing either job_description_raw.txt or cleaned_job_description.txt
-- when folder_path is provided, the workflow uses that local folder as input instead of searching ATS sources on the internet
+- create_job_files(job_folder="...") processes an existing local job folder containing job_description_raw.txt, cleaned_job_description.txt, job_description.txt, job description.txt, job_description.pdf, or job description.pdf
+- when the user provides only a company-name-style folder hint, prefer matching folders under {JOBS_ROOT_DISPLAY} whose name contains that company and choose the closest dated folder
+- create_job_files writes the same six generated job-output files as the normal job-processing flow under {OUTPUTS_ROOT_DISPLAY}
 - you can keep several sibling job folders under {JOBS_ROOT_DISPLAY} and run them one by one
 - the main configuration lives in {CONFIG_DISPLAY_PATH}, including job_search settings, debug mode, model settings, and default paths
 - the workflow does not currently submit applications through portals or monitor application status
@@ -40,6 +43,7 @@ Rules:
 - Use tools only when the user is clearly asking you to execute a real workflow.
 - If the user asks to search for jobs, find job ads, discover jobs, or run the default job search, use run_job_agent with no folder_path.
 - If the user asks for help finding a job, looking for jobs, job ads, or preparing application documents for discovered jobs, use run_job_agent with no folder_path.
+- If the user asks to create job files, generate application files, or process an existing local job folder or company-name job hint under {JOBS_ROOT_DISPLAY}, use create_job_files with job_folder.
 - If the user asks to find the best CV, match a CV to a job, or asks which CV fits a job, use match_cv with the target job folder.
 - If the user asks for instructions, explanation, setup help, or how to do something, respond normally and do not call a tool.
 - Never invent placeholder paths.
@@ -50,7 +54,7 @@ You MUST output valid JSON:
 
 {{
   "action": "tool" or "respond",
-  "tool_name": "run_job_agent" or "match_cv" or null,
+  "tool_name": "run_job_agent" or "create_job_files" or "match_cv" or null,
   "parameters": {{}},
   "response": "..."
 }}
@@ -237,14 +241,16 @@ def _answer_from_local_knowledge(user_input: str) -> str | None:
     if (
         "parameter" in lowered
         or "configuration" in lowered
-        or "domo_config" in lowered
+        or "config.yaml" in lowered
         or "preferences" in lowered
     ):
         return (
             f"The main configuration lives in {CONFIG_DISPLAY_PATH}. "
             "You can edit debug.enabled, paths, ollama settings, and the job_search section there. "
-            "The job_search section includes role, location, sources, companies, max_jobs, "
-            "max_results_per_source, and max_company_attempts_per_source."
+            "The job_search section includes role, location, ignore_location, remote_only, sources, companies, max_jobs, "
+            "max_results_per_source, and max_company_attempts_per_source. "
+            "The prompt_overrides section shows which workflows allow per-run prompt overrides. "
+            "Currently run_job_agent exposes the job_search override fields, while create_job_files and match_cv do not take prompt overrides."
         )
 
     # if "cleaned_job_description" in lowered or (
@@ -262,12 +268,11 @@ def _answer_from_local_knowledge(user_input: str) -> str | None:
         "where should i put" in lowered and "job agent" in lowered
     ):
         return (
-            f"Put job_description_raw.txt inside its own job folder, typically under {JOBS_ROOT_DISPLAY}. "
-            f"For example: {JOBS_ROOT_DISPLAY}/company-role-1/job_description_raw.txt or "
-            f"{JOBS_ROOT_DISPLAY}/20260322 - Company - Role/job_description_raw.txt. "
-            "If you run the workflow with that folder path, it will use the local file as input "
-            "and will not search ATS sources on the internet. You can create several sibling job "
-            f"folders under {JOBS_ROOT_DISPLAY} and process them one by one."
+            f"Put the job description inside its own job folder, typically under {JOBS_ROOT_DISPLAY}. "
+            f"You can use job_description_raw.txt directly, cleaned_job_description.txt, job_description.txt, job description.txt, job_description.pdf, or job description.pdf. "
+            f"For example: {JOBS_ROOT_DISPLAY}/20260322 - Company - Role/job_description_raw.txt or "
+            f"{JOBS_ROOT_DISPLAY}/20260322 - Company - Role/job description.pdf. "
+            "If you provide only the company name when running create_job_files or CV matching, it will try to match the closest dated folder with that company name."
         )
 
     if "where should i put" in lowered and "cv" in lowered:
@@ -282,8 +287,10 @@ def _answer_from_local_knowledge(user_input: str) -> str | None:
             f"{CONFIG_DISPLAY_PATH}, rank matching jobs, save raw job descriptions and metadata "
             f"under {JOBS_ROOT_DISPLAY}, then generate application artifacts under {OUTPUTS_ROOT_DISPLAY} including "
             "a cleaned job description, PDF, application notes, summary, skills list, and a "
-            "sample CV summary. It can also start from a folder that already contains "
-            "cleaned_job_description.txt. It does not auto-apply through application portals. "
+            "sample CV summary. The dedicated create_job_files workflow can also start from a folder that already contains "
+            "job_description_raw.txt, cleaned_job_description.txt, job_description.txt, job description.txt, job_description.pdf, or job description.pdf. "
+            "It can resolve company-name-only folder hints to the closest dated folder under the jobs directory. "
+            "It does not auto-apply through application portals. "
             f"It can also compare PDF CVs from {CVS_ROOT_DISPLAY} against a specific job folder and select "
             "the best-matching CV."
         )

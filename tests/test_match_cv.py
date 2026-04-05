@@ -1,7 +1,20 @@
+import tempfile
 import unittest
 from unittest.mock import patch
+from pathlib import Path
+
+from reportlab.pdfgen import canvas
 
 from tools.job import match_cv
+
+
+def _write_pdf(file_path: Path, lines: list[str]) -> None:
+    pdf = canvas.Canvas(str(file_path))
+    y = 800
+    for line in lines:
+        pdf.drawString(72, y, line)
+        y -= 20
+    pdf.save()
 
 
 class MatchCvParsingTests(unittest.TestCase):
@@ -65,6 +78,46 @@ class MatchCvParsingTests(unittest.TestCase):
             "Overall match: 7.5/10. Strong React and product engineering experience, but weaker explicit backend scaling experience.",
         )
         self.assertIsNone(interpreted["repair_response"])
+
+    def test_match_cv_bootstraps_job_text_from_spaced_pdf_name(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            temp_root = Path(tmp_dir)
+            job_folder = temp_root / "20260329 - TEKsystems for UBS - Senior Frontend Developer"
+            job_folder.mkdir()
+            _write_pdf(
+                job_folder / "job description.pdf",
+                [
+                    "Senior Frontend Developer",
+                    "Build modern React and TypeScript applications.",
+                ],
+            )
+
+            cvs_folder = temp_root / "cvs"
+            cvs_folder.mkdir()
+            _write_pdf(
+                cvs_folder / "Candidate.pdf",
+                [
+                    "Vincent Perrin",
+                    "React TypeScript frontend engineer",
+                ],
+            )
+
+            with patch.object(
+                match_cv,
+                "call_llm",
+                return_value=(
+                    '{"score": 8.5, "strengths": ["React"], '
+                    '"weaknesses": ["Limited finance context"], '
+                    '"fit_summary": "Strong frontend fit."}'
+                ),
+            ):
+                output = "".join(match_cv.match_cv(str(job_folder), str(cvs_folder)))
+
+            self.assertIn("Loading job description: Senior Frontend Developer", output)
+            self.assertTrue((job_folder / "job_description_raw.txt").exists())
+            self.assertTrue((job_folder / "job_metadata.json").exists())
+            self.assertTrue((job_folder / "cv_match_analysis.json").exists())
+            self.assertTrue((job_folder / "cv_match_summary.txt").exists())
 
 
 if __name__ == "__main__":

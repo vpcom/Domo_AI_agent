@@ -2,7 +2,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from assistant.config import get_paths
-from assistant.schemas import MatchCvArgs, PlannedToolCall, RunJobAgentArgs
+from assistant.schemas import (
+    CreateJobFilesArgs,
+    MatchCvArgs,
+    PlannedToolCall,
+    RunJobAgentArgs,
+)
+from tools.job.job_folder_resolution import resolve_job_folder_hint
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +50,11 @@ TOOL_POLICIES = {
         max_model_steps=1,
         max_tool_steps=1,
     ),
+    "create_job_files": ToolPolicy(
+        requires_approval=False,
+        max_model_steps=1,
+        max_tool_steps=1,
+    ),
 }
 
 
@@ -59,33 +70,7 @@ def normalize_allowed_job_path(folder_path: str | None) -> str | None:
     if any(fragment in lowered for fragment in PLACEHOLDER_PATH_FRAGMENTS):
         raise ValueError("Placeholder paths are not allowed.")
 
-    candidate = Path(stripped).expanduser()
-    if not candidate.is_absolute():
-        direct_candidate = (PROJECT_ROOT / candidate).resolve()
-        jobs_candidate = (JOBS_ROOT / candidate).resolve()
-        direct_raw = direct_candidate / "job_description_raw.txt"
-        jobs_raw = jobs_candidate / "job_description_raw.txt"
-        direct_cleaned = direct_candidate / "cleaned_job_description.txt"
-        jobs_cleaned = jobs_candidate / "cleaned_job_description.txt"
-        direct_cleaned_alt = direct_candidate / "job_description_cleaned.txt"
-        jobs_cleaned_alt = jobs_candidate / "job_description_cleaned.txt"
-
-        if direct_raw.exists():
-            candidate = direct_candidate
-        elif jobs_raw.exists():
-            candidate = jobs_candidate
-        elif direct_cleaned.exists():
-            candidate = direct_candidate
-        elif jobs_cleaned.exists():
-            candidate = jobs_candidate
-        elif direct_cleaned_alt.exists():
-            candidate = direct_candidate
-        elif jobs_cleaned_alt.exists():
-            candidate = jobs_candidate
-        else:
-            candidate = direct_candidate
-    else:
-        candidate = candidate.resolve()
+    candidate = resolve_job_folder_hint(stripped, PROJECT_ROOT, JOBS_ROOT)
 
     allowed_roots = (JOBS_ROOT, OUTPUTS_ROOT, PROJECT_DATA_ROOT)
     if not any(root == candidate or root in candidate.parents for root in allowed_roots):
@@ -160,11 +145,28 @@ def validate_semantics(user_input: str, tool_name: str) -> None:
                 "The request looks instructional, not executable. "
                 "Respond with guidance instead of running the CV matching tool."
             )
+        return
+
+    if tool_name == "create_job_files":
+        if any(pattern in lowered for pattern in INSTRUCTION_PATTERNS):
+            raise ValueError(
+                "The request looks instructional, not executable. "
+                "Respond with guidance instead of running the local job-file workflow."
+            )
+
+        if any(word in lowered for word in INSTRUCTION_WORDS) and not any(
+            word in lowered for word in EXECUTION_WORDS
+        ):
+            raise ValueError(
+                "The request looks instructional, not executable. "
+                "Respond with guidance instead of running the local job-file workflow."
+            )
+        return
 
 
 def plan_tool_call(
     tool_name: str,
-    args: RunJobAgentArgs | MatchCvArgs,
+    args: RunJobAgentArgs | CreateJobFilesArgs | MatchCvArgs,
     user_input: str,
     request_id: str,
 ) -> PlannedToolCall:
@@ -172,7 +174,31 @@ def plan_tool_call(
 
     if tool_name == "run_job_agent":
         normalized_path = normalize_allowed_job_path(args.folder_path)
-        normalized_args = RunJobAgentArgs(folder_path=normalized_path)
+        if normalized_path is not None and any(
+            value is not None
+            for value in (
+                args.role,
+                args.location,
+                args.ignore_location,
+                args.remote_only,
+            )
+        ):
+            raise ValueError(
+                "Search overrides are only supported for online job discovery, not local folder processing."
+            )
+
+        normalized_args = RunJobAgentArgs(
+            folder_path=normalized_path,
+            role=(args.role or "").strip() or None,
+            location=(args.location or "").strip() or None,
+            ignore_location=args.ignore_location,
+            remote_only=args.remote_only,
+        )
+    elif tool_name == "create_job_files":
+        normalized_job_path = normalize_allowed_job_path(args.job_folder)
+        if normalized_job_path is None:
+            raise ValueError("A job folder is required to create local job files.")
+        normalized_args = CreateJobFilesArgs(job_folder=normalized_job_path)
     elif tool_name == "match_cv":
         normalized_job_path = normalize_allowed_job_path(args.job_folder)
         if normalized_job_path is None:

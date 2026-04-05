@@ -6,8 +6,9 @@ from assistant.registry import TOOLS, WORKFLOWS
 
 
 class WorkflowRegistryTests(unittest.TestCase):
-    def test_registry_uses_workflow_entrypoints_for_both_actions(self):
+    def test_registry_uses_workflow_entrypoints_for_all_actions(self):
         self.assertIs(TOOLS["run_job_agent"].executor, WORKFLOWS["run_job_agent"])
+        self.assertIs(TOOLS["create_job_files"].executor, WORKFLOWS["create_job_files"])
         self.assertIs(TOOLS["match_cv"].executor, WORKFLOWS["match_cv"])
 
     def test_run_job_agent_workflow_has_consistent_wrapper_output(self):
@@ -23,6 +24,32 @@ class WorkflowRegistryTests(unittest.TestCase):
             f"Running default online job search from {get_display_path(get_config_path())}\n",
         )
         self.assertEqual(chunks[2], "tool chunk\n")
+        self.assertEqual(chunks[-1], "Workflow finished.\n")
+
+    def test_run_job_agent_workflow_surfaces_search_overrides(self):
+        with patch(
+            "workflows.run_job_agent_workflow.run_job_agent",
+            return_value=iter(["tool chunk\n"]),
+        ):
+            chunks = list(
+                TOOLS["run_job_agent"].executor(
+                    role="Backend Engineer",
+                    location="Amsterdam",
+                    ignore_location=True,
+                    remote_only=False,
+                )
+            )
+
+        self.assertEqual(chunks[0], "Starting job workflow...\n")
+        self.assertEqual(
+            chunks[1],
+            f"Running default online job search from {get_display_path(get_config_path())}\n",
+        )
+        self.assertEqual(
+            chunks[2],
+            "Search overrides: role=Backend Engineer, location=Amsterdam, ignore_location=True, remote_only=False\n",
+        )
+        self.assertEqual(chunks[3], "tool chunk\n")
         self.assertEqual(chunks[-1], "Workflow finished.\n")
 
     def test_match_cv_workflow_has_consistent_wrapper_output(self):
@@ -41,6 +68,22 @@ class WorkflowRegistryTests(unittest.TestCase):
         self.assertEqual(chunks[1], "Resolved job input: /tmp/job-folder\n")
         self.assertEqual(chunks[2], "Resolved CV input: /tmp/cvs-folder\n")
         self.assertEqual(chunks[3], "tool chunk\n")
+        self.assertEqual(chunks[-1], "Workflow finished.\n")
+
+    def test_create_job_files_workflow_has_consistent_wrapper_output(self):
+        with patch(
+            "workflows.create_job_files_workflow.create_job_files",
+            return_value=iter(["tool chunk\n"]),
+        ):
+            chunks = list(
+                TOOLS["create_job_files"].executor(
+                    job_folder="/tmp/job-folder",
+                )
+            )
+
+        self.assertEqual(chunks[0], "Starting create_job_files workflow...\n")
+        self.assertEqual(chunks[1], "Resolved job input: /tmp/job-folder\n")
+        self.assertEqual(chunks[2], "tool chunk\n")
         self.assertEqual(chunks[-1], "Workflow finished.\n")
 
 

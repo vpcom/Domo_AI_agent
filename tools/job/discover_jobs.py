@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -6,7 +7,12 @@ from typing import Callable, Dict, List, Optional, Tuple
 import requests
 import yaml
 
-from assistant.config import get_config_path, get_display_path, get_job_search_config
+from assistant.config import (
+    get_config_path,
+    get_display_path,
+    get_job_search_config,
+    get_prompt_override_fields,
+)
 from tools.job.models import JobState
 from tools.job.text_normalization import normalize_job_posting_text
 
@@ -146,9 +152,13 @@ def load_inputs_config(path: str | None = None) -> dict:
         config = get_job_search_config()
         loaded_from = get_display_path(get_config_path())
 
+    config = apply_job_search_overrides(config, load_job_search_overrides_from_env())
+
     print(
         f"[discover] loaded config path={loaded_from} "
         f"role={config.get('role')} location={config.get('location')} "
+        f"ignore_location={config.get('ignore_location', False)} "
+        f"remote_only={config.get('remote_only', False)} "
         f"sources={config.get('sources', [])} "
         f"max_jobs={config.get('max_jobs', 1)} "
         f"max_results_per_source={config.get('max_results_per_source', 5)} "
@@ -160,6 +170,8 @@ def load_inputs_config(path: str | None = None) -> dict:
 def discover_jobs_from_config(config: dict) -> List[Dict[str, str]]:
     role = config["role"].lower()
     location = config["location"].lower()
+    ignore_location = bool(config.get("ignore_location", False))
+    remote_only = bool(config.get("remote_only", False))
     sources = config.get("sources", [])
     max_results_per_source = config.get("max_results_per_source", 5)
     max_jobs = config.get("max_jobs", 1)
@@ -224,6 +236,7 @@ def discover_jobs(
 
     print(
         f"[discover] search role={role} location={location} "
+        f"ignore_location={ignore_location} remote_only={remote_only} "
         f"sources={sources} max_jobs={max_jobs} "
         f"max_results_per_source={max_results_per_source} "
         f"max_company_attempts_per_source={max_company_attempts_per_source or 'all'}"
@@ -271,7 +284,14 @@ def discover_jobs(
     if not all_jobs:
         raise ValueError("No jobs fetched from ATS sources")
 
-    ranked_jobs = select_best_jobs(all_jobs, role, location, max_jobs)
+    ranked_jobs = select_best_jobs(
+        all_jobs,
+        role,
+        location,
+        max_jobs,
+        ignore_location=ignore_location,
+        remote_only=remote_only,
+    )
     print(f"[discover] candidates found: {len(ranked_jobs)}")
     print(
         f"[discover] selected: {ranked_jobs[0]['title']} "
@@ -295,6 +315,34 @@ def build_source_companies(config: dict) -> Dict[str, List[str]]:
 
     print(f"[discover] source_companies={source_companies}")
     return source_companies
+
+
+def load_job_search_overrides_from_env() -> dict:
+    raw = os.environ.get("DOMO_JOB_SEARCH_OVERRIDES_JSON", "").strip()
+    if not raw:
+        return {}
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            "DOMO_JOB_SEARCH_OVERRIDES_JSON must contain valid JSON."
+        ) from exc
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "DOMO_JOB_SEARCH_OVERRIDES_JSON must contain a JSON object."
+        )
+
+    return parsed
+
+
+def apply_job_search_overrides(config: dict, overrides: dict | None) -> dict:
+    merged = dict(config)
+    for key in get_prompt_override_fields("run_job_agent"):
+        if overrides and key in overrides and overrides[key] is not None:
+            merged[key] = overrides[key]
+    return merged
 
 
 def fetch_greenhouse_jobs(company: str, max_results: int) -> List[Dict[str, str]]:
@@ -380,12 +428,19 @@ def select_best_jobs(
     role: str,
     location: str,
     max_jobs: int,
+    ignore_location: bool = False,
+    remote_only: bool = False,
 ) -> List[Dict[str, str]]:
+    require_location = not ignore_location and not remote_only
+    configured_strategy_name = "strict"
+    if remote_only:
+        configured_strategy_name = "remote_only"
+    elif ignore_location:
+        configured_strategy_name = "ignore_location"
+
     strategies = [
-        ("strict", ROLE_KEYWORDS, True, False),
-        ("ignore_location", ROLE_KEYWORDS, False, False),
-        ("expanded_role", EXPANDED_ROLE_KEYWORDS, False, False),
-        ("remote_only", [], False, True),
+        (configured_strategy_name, ROLE_KEYWORDS, require_location, remote_only),
+        (f"{configured_strategy_name}_expanded_role", EXPANDED_ROLE_KEYWORDS, require_location, remote_only),
     ]
     fallback_errors: List[str] = []
 
@@ -431,11 +486,11 @@ def is_relevant(
     normalized_location = normalize_text(location)
     normalized_role = normalize_text(role)
 
-    if remote_only:
-        return "remote" in loc
-
     role_match = normalized_role in title or any(keyword in title for keyword in role_keywords)
     if not role_match:
+        return False
+
+    if remote_only and "remote" not in loc:
         return False
 
     if not require_location:

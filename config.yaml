@@ -1,5 +1,4 @@
 # Main application configuration for Domo.
-# This is the single human-readable config file the app loads.
 
 debug:
   enabled: false
@@ -23,9 +22,20 @@ ollama:
 job_workflow:
   subprocess_timeout_seconds: 300
 
+prompt_overrides:
+  run_job_agent:
+    - role
+    - location
+    - ignore_location
+    - remote_only
+  create_job_files: []
+  match_cv: []
+
 job_search:
   role: Full Stack Engineer
   location: Zurich
+  ignore_location: false
+  remote_only: false
 
   sources:
     - greenhouse

@@ -3,13 +3,17 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-ToolName = Literal["run_job_agent", "match_cv"]
+ToolName = Literal["run_job_agent", "create_job_files", "match_cv"]
 
 
 class RunJobAgentArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     folder_path: str | None = None
+    role: str | None = None
+    location: str | None = None
+    ignore_location: bool | None = None
+    remote_only: bool | None = None
 
 
 class MatchCvArgs(BaseModel):
@@ -17,6 +21,12 @@ class MatchCvArgs(BaseModel):
 
     job_folder: str
     cvs_folder: str | None = None
+
+
+class CreateJobFilesArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job_folder: str
 
 
 class AgentDecision(BaseModel):
@@ -32,7 +42,7 @@ class PlannedToolCall(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool_name: ToolName
-    parameters: RunJobAgentArgs | MatchCvArgs
+    parameters: RunJobAgentArgs | CreateJobFilesArgs | MatchCvArgs
     request_id: str
     requires_approval: bool = False
     reason: str = ""

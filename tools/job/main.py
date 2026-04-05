@@ -5,8 +5,6 @@ from pathlib import Path
 from assistant.config import get_paths
 
 ROOT = Path(__file__).resolve().parents[2]
-RAW_DESCRIPTION_FILE = "job_description_raw.txt"
-CLEANED_DESCRIPTION_FILE = "cleaned_job_description.txt"
 
 from tools.job.clean_job_description import run as clean_job_description
 from tools.job.discover_jobs import (
@@ -17,6 +15,14 @@ from tools.job.discover_jobs import (
 )
 from tools.job.export_job_pdf import run as export_job_pdf
 from tools.job.generate_application_materials import run as generate_application_materials
+from tools.job.job_folder_resolution import resolve_job_folder_hint
+from tools.job.local_job_inputs import (
+    CLEANED_DESCRIPTION_FILE,
+    PDF_DESCRIPTION_FILE,
+    RAW_DESCRIPTION_FILE,
+    ensure_local_job_inputs,
+    find_cleaned_job_description_file,
+)
 from tools.job.models import JobState
 
 PATHS = get_paths()
@@ -66,45 +72,32 @@ def run_state_from_cleaned(state: JobState, cleaned_source_file: Path) -> None:
 
 
 def resolve_job_folder(job_folder_arg: str) -> tuple[Path, str]:
-    job_folder = Path(job_folder_arg)
-    if not job_folder.is_absolute():
-        direct_candidate = (ROOT / job_folder).resolve()
-        jobs_candidate = (JOBS_ROOT / job_folder).resolve()
-        direct_raw_file = direct_candidate / RAW_DESCRIPTION_FILE
-        jobs_raw_file = jobs_candidate / RAW_DESCRIPTION_FILE
-        direct_cleaned_file = direct_candidate / CLEANED_DESCRIPTION_FILE
-        jobs_cleaned_file = jobs_candidate / CLEANED_DESCRIPTION_FILE
-
-        if direct_raw_file.exists():
-            job_folder = direct_candidate
-        elif jobs_raw_file.exists():
-            job_folder = jobs_candidate
-        elif direct_cleaned_file.exists():
-            job_folder = direct_candidate
-        elif jobs_cleaned_file.exists():
-            job_folder = jobs_candidate
-        else:
-            job_folder = direct_candidate
+    job_folder = resolve_job_folder_hint(job_folder_arg, ROOT, JOBS_ROOT)
 
     if not job_folder.exists():
         raise FileNotFoundError(
             f"Job folder does not exist: {job_folder}\n"
             f"Pass an existing folder containing `{RAW_DESCRIPTION_FILE}` or "
-            f"`{CLEANED_DESCRIPTION_FILE}`, or use batch mode with no argument."
+            f"`{CLEANED_DESCRIPTION_FILE}`, `job_description.txt`, `job description.txt`, "
+            f"`{PDF_DESCRIPTION_FILE}`, or `job description.pdf`, or use batch mode with no argument."
         )
 
     if not job_folder.is_dir():
         raise ValueError(f"Job path is not a folder: {job_folder}")
 
     raw_file = job_folder / RAW_DESCRIPTION_FILE
-    cleaned_file = job_folder / CLEANED_DESCRIPTION_FILE
+    cleaned_file = find_cleaned_job_description_file(job_folder)
     if raw_file.exists():
         return job_folder, "raw"
-    if cleaned_file.exists():
+    if cleaned_file is not None:
         return job_folder, "cleaned"
+    ensure_local_job_inputs(job_folder)
+    if raw_file.exists():
+        return job_folder, "raw"
 
     raise FileNotFoundError(
-        f"Folder does not contain `{RAW_DESCRIPTION_FILE}` or `{CLEANED_DESCRIPTION_FILE}`: {job_folder}"
+        f"Folder does not contain `{RAW_DESCRIPTION_FILE}`, `{CLEANED_DESCRIPTION_FILE}`, "
+        f"`job_description.txt`, `job description.txt`, `{PDF_DESCRIPTION_FILE}`, or `job description.pdf`: {job_folder}"
     )
 
 
@@ -117,7 +110,10 @@ def run_single(job_folder_arg: str) -> None:
     if input_mode == "raw":
         run_state(state)
     else:
-        run_state_from_cleaned(state, job_folder / CLEANED_DESCRIPTION_FILE)
+        cleaned_source_file = find_cleaned_job_description_file(job_folder)
+        if cleaned_source_file is None:
+            raise FileNotFoundError(f"Missing cleaned job description in {job_folder}")
+        run_state_from_cleaned(state, cleaned_source_file)
     print(f"Done. Output written to: {state.folder}")
 
 
@@ -169,6 +165,7 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise ValueError(
             'Usage: python -m tools.job.main "data/jobs/YYYYMMDD - Company - Role"\n'
+            '   or: python -m tools.job.main "company-name"\n'
             '   or: python -m tools.job.main "data/jobs/some-folder-with-cleaned-job-description"\n'
             "   or: python -m tools.job.main"
         )
