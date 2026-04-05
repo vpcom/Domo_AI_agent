@@ -128,3 +128,7 @@ domo/
   - `skills.txt`
   - `sample_cv.txt`
 - The workflow can search and prepare documents, but it does not currently submit applications through portals or monitor application status.
+
+## License
+
+This project is licensed under the MIT License.
