@@ -181,6 +181,8 @@ def discover_jobs_from_config(config: dict) -> List[Dict[str, str]]:
     return discover_jobs(
         role,
         location,
+        ignore_location,
+        remote_only,
         sources,
         max_results_per_source,
         max_jobs,
@@ -220,6 +222,8 @@ def build_job_folder_path(job: Dict[str, str], root: Path, date_prefix: str) -> 
 def discover_jobs(
     role: str,
     location: str,
+    ignore_location: bool,
+    remote_only: bool,
     sources: List[str],
     max_results_per_source: int,
     max_jobs: int,

@@ -22,7 +22,7 @@ class MatchCvParsingTests(unittest.TestCase):
         response = """
         {
           "score": 8.5,
-          "strengths": ["React", "TypeScript"],
+          "strengths": ["Framework A", "Language B"],
           "weaknesses": ["Limited backend depth"],
           "fit_summary": "Strong frontend match with enough full-stack overlap."
         }
@@ -41,9 +41,8 @@ class MatchCvParsingTests(unittest.TestCase):
         response = (
             "The CV provided has a strong background in software engineering, "
             "with experience in both frontend and backend development, including "
-            "React, Redux, Node.js, Python, Java, and others. The candidate also "
-            "has experience in AI, having worked with GitHub Copilot, ChatGPT, "
-            "and integrating the OpenAI API."
+            "Framework A, State Tool B, Runtime C, Language D, Platform E, and others. The candidate also "
+            "has experience with developer-assistance tools and modern API integrations."
         )
 
         with patch.object(
@@ -66,7 +65,7 @@ class MatchCvParsingTests(unittest.TestCase):
 
     def test_interpret_llm_evaluation_extracts_inline_score_without_repair(self):
         response = (
-            "Overall match: 7.5/10. Strong React and product engineering experience, "
+            "Overall match: 7.5/10. Strong frontend framework and product engineering experience, "
             "but weaker explicit backend scaling experience."
         )
 
@@ -75,20 +74,20 @@ class MatchCvParsingTests(unittest.TestCase):
         self.assertEqual(interpreted["score"], 7.5)
         self.assertEqual(
             interpreted["fit_summary"],
-            "Overall match: 7.5/10. Strong React and product engineering experience, but weaker explicit backend scaling experience.",
+            "Overall match: 7.5/10. Strong frontend framework and product engineering experience, but weaker explicit backend scaling experience.",
         )
         self.assertIsNone(interpreted["repair_response"])
 
     def test_match_cv_bootstraps_job_text_from_spaced_pdf_name(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             temp_root = Path(tmp_dir)
-            job_folder = temp_root / "20260329 - TEKsystems for UBS - Senior Frontend Developer"
+            job_folder = temp_root / "20260329 - Recruiting Partner - UI Engineer"
             job_folder.mkdir()
             _write_pdf(
                 job_folder / "job description.pdf",
                 [
-                    "Senior Frontend Developer",
-                    "Build modern React and TypeScript applications.",
+                    "UI Engineer",
+                    "Build modern interface applications.",
                 ],
             )
 
@@ -97,8 +96,8 @@ class MatchCvParsingTests(unittest.TestCase):
             _write_pdf(
                 cvs_folder / "Candidate.pdf",
                 [
-                    "Vincent Perrin",
-                    "React TypeScript frontend engineer",
+                    "Example Candidate",
+                    "Interface application engineer",
                 ],
             )
 
@@ -106,14 +105,14 @@ class MatchCvParsingTests(unittest.TestCase):
                 match_cv,
                 "call_llm",
                 return_value=(
-                    '{"score": 8.5, "strengths": ["React"], '
+                    '{"score": 8.5, "strengths": ["Framework A"], '
                     '"weaknesses": ["Limited finance context"], '
                     '"fit_summary": "Strong frontend fit."}'
                 ),
             ):
                 output = "".join(match_cv.match_cv(str(job_folder), str(cvs_folder)))
 
-            self.assertIn("Loading job description: Senior Frontend Developer", output)
+            self.assertIn("Loading job description: UI Engineer", output)
             self.assertTrue((job_folder / "job_description_raw.txt").exists())
             self.assertTrue((job_folder / "job_metadata.json").exists())
             self.assertTrue((job_folder / "cv_match_analysis.json").exists())

@@ -10,11 +10,11 @@ from tools.job.text_normalization import normalize_job_posting_text
 
 
 HTML_SAMPLE = (
-    "&lt;p&gt;Checkr is recognized on "
-    "&lt;a href=&quot;https://www.forbes.com/lists/cloud100/&quot; target=&quot;_blank&quot;&gt;"
-    "Forbes Cloud 100 2025 List&lt;/a&gt; and is a Y Combinator 2024 "
-    "&lt;a href=&quot;https://www.ycombinator.com/blog/yc-top-companies-2024&quot;&gt;"
-    "Breakthrough Company&lt;/a&gt;.&lt;/p&gt;"
+    "&lt;p&gt;Company Alpha is recognized on "
+    "&lt;a href=&quot;https://example.com/awards/platform-100&quot; target=&quot;_blank&quot;&gt;"
+    "Platform 100 List&lt;/a&gt; and received the 2024 "
+    "&lt;a href=&quot;https://example.com/awards/product-breakthrough&quot;&gt;"
+    "Product Breakthrough Award&lt;/a&gt;.&lt;/p&gt;"
     "&lt;ul&gt;&lt;li&gt;Build backend systems&lt;/li&gt;&lt;li&gt;Ship product features&lt;/li&gt;&lt;/ul&gt;"
 )
 
@@ -26,8 +26,8 @@ class TextNormalizationTests(unittest.TestCase):
         self.assertNotIn("&lt;", normalized)
         self.assertNotIn("&quot;", normalized)
         self.assertNotIn("<a", normalized)
-        self.assertIn("Forbes Cloud 100 2025 List", normalized)
-        self.assertIn("Breakthrough Company", normalized)
+        self.assertIn("Platform 100 List", normalized)
+        self.assertIn("Product Breakthrough Award", normalized)
         self.assertIn("- Build backend systems", normalized)
         self.assertIn("- Ship product features", normalized)
 
@@ -37,9 +37,9 @@ class TextNormalizationTests(unittest.TestCase):
             raw_file = root / "job_description_raw.txt"
             metadata_file = root / "job_metadata.json"
             job = {
-                "company": "Checkr",
-                "title": "Backend Software Engineer II",
-                "location": "San Francisco",
+                "company": "Company Alpha",
+                "title": "Application Engineer II",
+                "location": "City Alpha",
                 "source": "greenhouse",
                 "description": HTML_SAMPLE,
             }

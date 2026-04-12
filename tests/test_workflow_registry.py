@@ -10,6 +10,17 @@ class WorkflowRegistryTests(unittest.TestCase):
         self.assertIs(TOOLS["run_job_agent"].executor, WORKFLOWS["run_job_agent"])
         self.assertIs(TOOLS["create_job_files"].executor, WORKFLOWS["create_job_files"])
         self.assertIs(TOOLS["match_cv"].executor, WORKFLOWS["match_cv"])
+        self.assertIs(TOOLS["copy_file"].executor, WORKFLOWS["copy_file"])
+        self.assertIs(TOOLS["write_document"].executor, WORKFLOWS["write_document"])
+        self.assertIs(TOOLS["read_documents"].executor, WORKFLOWS["read_documents"])
+        self.assertIs(
+            TOOLS["summarize_documents"].executor,
+            WORKFLOWS["summarize_documents"],
+        )
+        self.assertIs(
+            TOOLS["evaluate_documents"].executor,
+            WORKFLOWS["evaluate_documents"],
+        )
 
     def test_run_job_agent_workflow_has_consistent_wrapper_output(self):
         with patch(
@@ -33,8 +44,8 @@ class WorkflowRegistryTests(unittest.TestCase):
         ):
             chunks = list(
                 TOOLS["run_job_agent"].executor(
-                    role="Backend Engineer",
-                    location="Amsterdam",
+                    role="Application Engineer",
+                    location="City Alpha",
                     ignore_location=True,
                     remote_only=False,
                 )
@@ -47,7 +58,7 @@ class WorkflowRegistryTests(unittest.TestCase):
         )
         self.assertEqual(
             chunks[2],
-            "Search overrides: role=Backend Engineer, location=Amsterdam, ignore_location=True, remote_only=False\n",
+            "Search overrides: role=Application Engineer, location=City Alpha, ignore_location=True, remote_only=False\n",
         )
         self.assertEqual(chunks[3], "tool chunk\n")
         self.assertEqual(chunks[-1], "Workflow finished.\n")
