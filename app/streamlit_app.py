@@ -73,6 +73,14 @@ st.markdown(
       line-height: 1.5;
       position: relative;
     }
+    .domo-sticky-context {
+      position: sticky;
+      top: 1rem;
+      align-self: flex-start;
+    }
+    .domo-panel-heading {
+      margin: 0 0 1rem 0;
+    }
     div[data-testid="stChatInput"] > div {
       border: 1px solid rgba(245, 191, 36, 0.45);
       border-radius: 0.85rem;
@@ -137,11 +145,32 @@ components.html(
       const isConnecting = candidateDocuments().some((doc) =>
         doc.body && /Connecting/i.test(doc.body.innerText || "")
       );
-      logo.src = isConnecting ? blueLogo : yellowLogo;
+      const nextLogo = isConnecting ? blueLogo : yellowLogo;
+      if (logo.src !== nextLogo) {{
+        logo.src = nextLogo;
+      }}
     }}
 
-    syncLogoWithConnectionState();
-    setInterval(syncLogoWithConnectionState, 500);
+    function installStickyContext() {{
+      for (const doc of candidateDocuments()) {{
+        const anchor = doc.getElementById("domo-context-anchor");
+        if (!anchor) continue;
+
+        const container = anchor.closest('[data-testid="stElementContainer"]');
+
+        if (container && !container.classList.contains("domo-sticky-context")) {{
+          container.classList.add("domo-sticky-context");
+        }}
+      }}
+    }}
+
+    function refreshUi() {{
+      syncLogoWithConnectionState();
+      installStickyContext();
+    }}
+
+    refreshUi();
+    setInterval(refreshUi, 500);
     </script>
     """,
     height=0,
@@ -179,6 +208,10 @@ def _context_keys_for_display(active_workflow: str | None) -> dict[str, list[str
 
 
 def _render_text_section(title: str, lines: list[str]) -> None:
+    st.markdown(_text_section_html(title, lines), unsafe_allow_html=True)
+
+
+def _text_section_html(title: str, lines: list[str]) -> str:
     if not lines:
         body = "<div class='domo-section-line'><span class='domo-muted'>No retained values yet.</span></div>"
     else:
@@ -186,14 +219,11 @@ def _render_text_section(title: str, lines: list[str]) -> None:
             f"<div class='domo-section-line'>{line}</div>"
             for line in lines
         )
-    st.markdown(
-        (
-            "<div class='domo-section'>"
-            f"<div class='domo-section-title'>{escape(title)}</div>"
-            f"{body}"
-            "</div>"
-        ),
-        unsafe_allow_html=True,
+    return (
+        "<div class='domo-section'>"
+        f"<div class='domo-section-title'>{escape(title)}</div>"
+        f"{body}"
+        "</div>"
     )
 
 
@@ -211,7 +241,7 @@ def _render_context_panel(current_state: ConversationState) -> None:
     workflow_name = None if active_workflow is None else active_workflow.value
     keys_by_section = _context_keys_for_display(workflow_name)
 
-    st.subheader("Context")
+    sections_html: list[str] = []
     for section_name, keys in keys_by_section.items():
         section_map = {
             "Request": current_state.context.request,
@@ -226,7 +256,18 @@ def _render_context_panel(current_state: ConversationState) -> None:
             line = _context_line(value)
             if line is not None:
                 lines.append(line)
-        _render_text_section(section_name, lines)
+        sections_html.append(_text_section_html(section_name, lines))
+
+    st.markdown(
+        (
+            "<div id='domo-context-anchor'></div>"
+            "<div>"
+            "<h3 class='domo-panel-heading'>Context</h3>"
+            f"{''.join(sections_html)}"
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def _render_chat_panel(current_state: ConversationState) -> None:
