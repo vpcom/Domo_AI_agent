@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 
@@ -97,6 +99,12 @@ class ConversationRuntimeTests(unittest.TestCase):
                 for event in result.activity_events
             )
         )
+        self.assertFalse(
+            any(
+                event.summary == "Received chat message."
+                for event in result.activity_events
+            )
+        )
 
     def test_planner_prompt_examples_are_generic(self):
         state = runtime.create_conversation_state()
@@ -104,11 +112,40 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         self.assertIn("Company - Role", prompt)
         self.assertNotIn("Natzka", prompt)
+        self.assertIn("not limited to job-related requests", prompt)
+        self.assertIn("PENDING PLAN JSON", prompt)
+        self.assertIn('"turn_intent": "respond" | "clarify" | "confirm" | "execute"', prompt)
+        self.assertIn("`steps` is the canonical executable plan", prompt)
+        self.assertIn("Every executable workflow, including a single action", prompt)
+        self.assertIn("Top-level `action` and `arguments` are optional legacy mirrors", prompt)
+        self.assertIn("{working_folder}", prompt)
+        self.assertIn("shared staged folder", prompt)
+        self.assertIn("Never ask the user for it and never list it in `missing_fields`", prompt)
+        self.assertIn(
+            "The runtime validates planned earlier outputs even before they exist on disk",
+            prompt,
+        )
+        self.assertIn('Do not write placeholder strings like `"Full pasted job text here"`', prompt)
+        self.assertIn(
+            f"data/outputs/{runtime.TODAY_STAMP} - Ahead Health - Senior Product Engineer/job_description_raw.txt",
+            prompt,
+        )
+        self.assertIn("can return their findings directly in chat", prompt)
+        self.assertIn("save the findings to a file once you confirm", prompt)
+        self.assertNotIn("MUST put it in the top-level `action` field", prompt)
 
     def test_yes_executes_only_when_confirmation_is_pending(self):
         state = runtime.create_conversation_state()
 
-        with patch("assistant.runtime.log_activity_event"):
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action=None,
+                turn_intent="respond",
+                assistant_message="There is nothing pending to confirm yet.",
+                confirmation_required=False,
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
             no_pending = runtime.plan_chat_turn(
                 state,
                 "yes",
@@ -119,7 +156,15 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         with patch(
             "assistant.runtime.call_llm",
-            return_value=_planner_response(action="run_job_agent"),
+            side_effect=[
+                _planner_response(action="run_job_agent"),
+                _planner_response(
+                    action="run_job_agent",
+                    turn_intent="execute",
+                    assistant_message="",
+                    reasoning="The user confirmed the already pending validated plan.",
+                ),
+            ],
         ), patch("assistant.runtime.log_activity_event"):
             result = runtime.plan_chat_turn(
                 state,
@@ -146,7 +191,15 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         with patch(
             "assistant.runtime.call_llm",
-            return_value=_planner_response(action="run_job_agent"),
+            side_effect=[
+                _planner_response(action="run_job_agent"),
+                _planner_response(
+                    action="run_job_agent",
+                    turn_intent="execute",
+                    assistant_message="",
+                    reasoning="The user confirmed the already pending validated plan.",
+                ),
+            ],
         ), patch("assistant.runtime.log_activity_event"):
             result = runtime.plan_chat_turn(
                 state,
@@ -167,6 +220,175 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         self.assertEqual(confirmed.turn_intent, "execute")
         self.assertIsNotNone(confirmed.proposed_tool_call)
+
+    def test_i_confirm_executes_when_confirmation_is_pending(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            side_effect=[
+                _planner_response(
+                    action="search_web",
+                    arguments={"query": "mickey"},
+                ),
+                _planner_response(
+                    action="search_web",
+                    arguments={"query": "mickey"},
+                    turn_intent="execute",
+                    assistant_message="",
+                    reasoning="The user confirmed the already pending validated plan.",
+                ),
+            ],
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Search the web for mickey",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Search the web for mickey",
+                result,
+                turn_id="turn-1",
+            )
+            confirmed = runtime.plan_chat_turn(
+                state,
+                "I confirm",
+                turn_id="turn-2",
+            )
+
+        self.assertEqual(confirmed.turn_intent, "execute")
+        self.assertIsNotNone(confirmed.proposed_tool_call)
+        self.assertEqual(confirmed.proposed_tool_call.tool_name, "search_web")
+
+    def test_ok_with_punctuation_executes_when_confirmation_is_pending(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            side_effect=[
+                _planner_response(
+                    action="search_web",
+                    arguments={"query": "mickey"},
+                ),
+                _planner_response(
+                    action="search_web",
+                    arguments={"query": "mickey"},
+                    turn_intent="execute",
+                    assistant_message="",
+                    reasoning="The user confirmed the already pending validated plan.",
+                ),
+            ],
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Search the web for mickey",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Search the web for mickey",
+                result,
+                turn_id="turn-1",
+            )
+            confirmed = runtime.plan_chat_turn(
+                state,
+                "ok, search, I am ready",
+                turn_id="turn-2",
+            )
+
+        self.assertEqual(confirmed.turn_intent, "execute")
+        self.assertIsNotNone(confirmed.proposed_tool_call)
+        self.assertEqual(confirmed.proposed_tool_call.tool_name, "search_web")
+
+    def test_person_lookup_is_planned_by_llm_as_search_web(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action="search_web",
+                arguments={"query": "Bob Smith"},
+                assistant_message="I can search the web for Bob Smith once you confirm.",
+                reasoning="The user asked about a person and that requires web search.",
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Hey Domo! Do you know Bob Smith",
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "confirm")
+        self.assertTrue(result.confirmation_required)
+        self.assertIsNotNone(result.proposed_tool_call)
+        self.assertEqual(result.proposed_tool_call.tool_name, "search_web")
+        self.assertEqual(result.proposed_tool_call.parameters.query, "Bob Smith")
+        self.assertIn("search the web for Bob Smith", result.assistant_message)
+
+    def test_generic_capabilities_answer_is_planned_by_llm_and_not_job_only(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action=None,
+                turn_intent="respond",
+                assistant_message=(
+                    "I can answer open questions in chat, search the web, inspect project files and data, "
+                    "summarize or evaluate documents, and write new files under data/outputs/."
+                ),
+                confirmation_required=False,
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "What can you do?",
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "respond")
+        self.assertIn("search the web", result.assistant_message)
+        self.assertIn("inspect project files", result.assistant_message)
+        self.assertNotIn("job-related requests", result.assistant_message.lower())
+
+    def test_execute_intent_for_changed_plan_is_downgraded_to_confirmation(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            side_effect=[
+                _planner_response(action="run_job_agent"),
+                _planner_response(
+                    action="run_job_agent",
+                    arguments={"remote_only": True},
+                    turn_intent="execute",
+                    assistant_message="",
+                    reasoning="The user wants to run the revised plan immediately.",
+                ),
+            ],
+        ), patch("assistant.runtime.log_activity_event"):
+            initial = runtime.plan_chat_turn(
+                state,
+                "Search for jobs",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Search for jobs",
+                initial,
+                turn_id="turn-1",
+            )
+            revised = runtime.plan_chat_turn(
+                state,
+                "Actually make it remote only",
+                turn_id="turn-2",
+            )
+
+        self.assertEqual(revised.turn_intent, "confirm")
+        self.assertTrue(revised.confirmation_required)
+        self.assertIsNotNone(revised.proposed_tool_call)
+        self.assertTrue(revised.proposed_tool_call.parameters.remote_only)
 
     def test_follow_up_uses_current_workflow_context(self):
         state = runtime.create_conversation_state()
@@ -419,7 +641,7 @@ class ConversationRuntimeTests(unittest.TestCase):
         state = runtime.create_conversation_state()
         nested_payload = """
         {
-          "assistant_message": "I can help analyze the job advertisement you provided. To do this, I suggest creating a new job file and pasting the text into it. Then, I will use the `evaluate_documents` action to evaluate the document against the criteria of being a Role Alpha in City Beta. Here's my proposed workflow:\n\n```json\n{\n  \\"assistant_message\\": \\"I can help analyze the job advertisement you provided. I will create a new job file, paste the text into it, and then evaluate the document against the criteria of being a Role Alpha in City Beta.\\",\n  \\"turn_intent\\": \\"respond\\",\n  \\"action\\": \\"create_job_files\\",\n  \\"arguments\\": {\n    \\"job_folder\\": \\"data/jobs/new_job\\"\n  },\n  \\"confirmation_required\\": true\n}\n```",
+          "assistant_message": "I can help analyze the job advertisement you provided. To do this, I suggest creating a new job file and pasting the text into it. Then, I will use the `evaluate_documents` action to evaluate the document against the criteria of being a Role Alpha in City Beta. Here's my proposed workflow:\n\n```json\n{\n  \\"assistant_message\\": \\"I can help analyze the job advertisement you provided. I will create a new job file, paste the text into it, and then evaluate the document against the criteria of being a Role Alpha in City Beta.\\",\n  \\"turn_intent\\": \\"respond\\",\n  \\"action\\": \\"create_job_files\\",\n  \\"arguments\\": {\n    \\"job_folder\\": \\"data/outputs/new_job\\"\n  },\n  \\"confirmation_required\\": true\n}\n```",
           "turn_intent": "clarify",
           "missing_fields": [],
           "confidence": 0.95,
@@ -455,7 +677,7 @@ class ConversationRuntimeTests(unittest.TestCase):
             return_value=_planner_response(
                 action="write_document",
                 arguments={
-                    "destination_path": "data/jobs/20260412 - Company Alpha - Application Engineer/job_description_raw.txt",
+                    "destination_path": "data/outputs/20260412 - Company Alpha - Application Engineer/job_description_raw.txt",
                     "content": "Application Engineer role\\nBuild services\\nShip systems",
                 },
                 reasoning="The user wants to save pasted job text into a local file.",
@@ -478,6 +700,34 @@ class ConversationRuntimeTests(unittest.TestCase):
         self.assertIn("destination_path", state.context.parameters)
         self.assertNotIn("content", state.context.parameters)
 
+    def test_write_document_output_is_normalized_under_timestamp_root(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action="write_document",
+                arguments={
+                    "destination_path": "data/outputs/job_description_raw.txt",
+                    "content": "Application Engineer role\\nBuild services\\nShip systems",
+                },
+                reasoning="The user wants to save pasted job text into a local file.",
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Save this job ad as a file",
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "confirm")
+        self.assertIsNotNone(result.proposed_tool_call)
+        destination_path = result.proposed_tool_call.parameters.destination_path
+        self.assertRegex(
+            destination_path,
+            r"data/outputs/\d{8}_\d{6}/job_description_raw\.txt$",
+        )
+
     def test_steps_with_null_top_level_action_prepare_confirmation(self):
         state = runtime.create_conversation_state()
 
@@ -490,7 +740,7 @@ class ConversationRuntimeTests(unittest.TestCase):
                     {
                         "action": "write_document",
                         "arguments": {
-                            "destination_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                            "destination_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
                             "content": "Long pasted job description text\nwith multiple lines\nand details",
                         },
                     }
@@ -520,6 +770,272 @@ class ConversationRuntimeTests(unittest.TestCase):
             )
         )
 
+    def test_runnable_clarify_plan_with_internal_placeholders_is_promoted_to_confirmation(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action=None,
+                arguments={},
+                steps=[
+                    {
+                        "action": "write_document",
+                        "arguments": {
+                            "destination_path": "data/outputs/job_description_raw.txt",
+                            "content": "About the job\nWe are Ahead Health\nSenior Product Engineer\n",
+                        },
+                    },
+                    {
+                        "action": "create_job_files",
+                        "arguments": {
+                            "job_folder": "{{last_job_folder}}",
+                        },
+                    },
+                    {
+                        "action": "match_cv",
+                        "arguments": {
+                            "job_folder": "{{last_job_folder}}",
+                        },
+                    },
+                ],
+                turn_intent="clarify",
+                assistant_message=(
+                    "I can process this job advertisement for you. Here's the plan:\n"
+                    "1. Write the job description into a file.\n"
+                    "2. Create a new job folder with the processed data.\n"
+                    "3. Match the CVs with the processed job folder."
+                ),
+                missing_fields=["last_job_folder"],
+                confirmation_required=False,
+                reasoning="The user pasted a job ad and wants downstream job processing.",
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Please process this job ad and match the CVs.",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Please process this job ad and match the CVs.",
+                result,
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "confirm")
+        self.assertTrue(result.confirmation_required)
+        self.assertEqual(len(result.proposed_tool_calls), 3)
+        self.assertEqual(state.pending_tool_call.tool_name, "write_document")
+        self.assertEqual(state.pending_tool_calls[-1].tool_name, "match_cv")
+        self.assertEqual(result.missing_fields, [])
+        self.assertTrue(
+            any(
+                event.summary == "Promoted a runnable planner clarification to confirmation."
+                for event in result.activity_events
+            )
+        )
+
+    def test_working_folder_missing_field_is_dropped_for_staged_job_plan(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action=None,
+                arguments={},
+                steps=[
+                    {
+                        "action": "write_document",
+                        "arguments": {
+                            "destination_path": f"data/outputs/{runtime.TODAY_STAMP} - Ahead Health - Senior Product Engineer/job_description_raw.txt",
+                            "content": (
+                                "About the job\n"
+                                "We are Ahead Health\n"
+                                "Senior Product Engineer\n"
+                                "Build product features, maintain services, and collaborate across the stack.\n"
+                            ),
+                        },
+                    },
+                    {
+                        "action": "create_job_files",
+                        "arguments": {},
+                    },
+                    {
+                        "action": "match_cv",
+                        "arguments": {},
+                    },
+                ],
+                turn_intent="clarify",
+                assistant_message="I can stage the pasted job ad and process it once you confirm.",
+                missing_fields=["working_folder"],
+                confirmation_required=False,
+                reasoning="The user pasted a new job ad and wants downstream job processing.",
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Help me get a job for the following job ad: About the job We are Ahead Health...",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Help me get a job for the following job ad: About the job We are Ahead Health...",
+                result,
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "confirm")
+        self.assertEqual(result.missing_fields, [])
+        self.assertEqual(len(state.pending_tool_calls), 3)
+        self.assertIn("working_folder", state.context.parameters)
+        self.assertTrue(
+            any(
+                event.summary == "Dropped internal planner missing fields."
+                and "working_folder" in event.detail
+                for event in result.activity_events
+            )
+        )
+
+    def test_staged_job_flow_autofills_working_folder_for_create_job_files(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action=None,
+                arguments={},
+                steps=[
+                    {
+                        "action": "write_document",
+                        "arguments": {
+                            "destination_path": "data/outputs/job_description_raw.txt",
+                            "content": "About the job\nWe are Ahead Health\nSenior Product Engineer\n",
+                        },
+                    },
+                    {
+                        "action": "create_job_files",
+                        "arguments": {},
+                    },
+                    {
+                        "action": "evaluate_documents",
+                        "arguments": {
+                            "input_path": "{last_written_document}",
+                            "instructions": "Analyze this job advertisement against the candidate profile.",
+                        },
+                    },
+                ],
+                turn_intent="confirm",
+                assistant_message=(
+                    "I can stage the job description, create the job folder, and analyze it once you confirm."
+                ),
+                missing_fields=[],
+                confirmation_required=True,
+                reasoning="The user pasted a job ad and wants the assistant to help with it.",
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Help me get this job: About the job We are Ahead Health...",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Help me get this job: About the job We are Ahead Health...",
+                result,
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "confirm")
+        self.assertTrue(result.confirmation_required)
+        self.assertEqual(len(state.pending_tool_calls), 3)
+        write_call = state.pending_tool_calls[0]
+        create_call = state.pending_tool_calls[1]
+        evaluate_call = state.pending_tool_calls[2]
+        working_folder = str(Path(write_call.parameters.destination_path).parent)
+        self.assertEqual(create_call.tool_name, "create_job_files")
+        self.assertEqual(create_call.parameters.job_folder, working_folder)
+        self.assertEqual(evaluate_call.parameters.input_path, write_call.parameters.destination_path)
+        self.assertEqual(state.context.parameters["working_folder"].value, working_folder)
+        self.assertTrue(
+            any(
+                event.summary == "Filled `create_job_files.job_folder` from the staged working folder."
+                for event in result.activity_events
+            )
+        )
+
+    def test_copy_file_can_read_planned_earlier_output_under_shared_timestamp_root(self):
+        state = runtime.create_conversation_state()
+
+        with patch(
+            "assistant.runtime.call_llm",
+            return_value=_planner_response(
+                action=None,
+                arguments={},
+                steps=[
+                    {
+                        "action": "write_document",
+                        "arguments": {
+                            "destination_path": (
+                                f"data/outputs/{runtime.TODAY_STAMP} - Ahead Health - "
+                                "Senior Product Engineer/job_description_raw.txt"
+                            ),
+                            "content": (
+                                "About the job\n"
+                                "We are Ahead Health\n"
+                                "Senior Product Engineer\n"
+                                "Build product features and maintain services.\n"
+                            ),
+                        },
+                    },
+                    {
+                        "action": "copy_file",
+                        "arguments": {
+                            "source_path": (
+                                f"data/outputs/{runtime.TODAY_STAMP} - Ahead Health - "
+                                "Senior Product Engineer/job_description_raw.txt"
+                            ),
+                            "destination_path": (
+                                f"data/outputs/{runtime.TODAY_STAMP} - Ahead Health - "
+                                "Senior Product Engineer/job_description_copy.txt"
+                            ),
+                        },
+                    },
+                ],
+                turn_intent="confirm",
+                assistant_message="I can stage the job ad and copy the staged file once you confirm.",
+                missing_fields=[],
+                confirmation_required=True,
+                reasoning="The user wants a staged copy of the pasted job ad.",
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            result = runtime.plan_chat_turn(
+                state,
+                "Help me stage this job ad and keep a raw copy.",
+                turn_id="turn-1",
+            )
+            runtime.apply_turn_result(
+                state,
+                "Help me stage this job ad and keep a raw copy.",
+                result,
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(result.turn_intent, "confirm")
+        self.assertEqual(len(state.pending_tool_calls), 2)
+        write_call = state.pending_tool_calls[0]
+        copy_call = state.pending_tool_calls[1]
+        self.assertEqual(copy_call.tool_name, "copy_file")
+        self.assertEqual(copy_call.parameters.source_path, write_call.parameters.destination_path)
+        self.assertRegex(
+            copy_call.parameters.source_path,
+            r"data/outputs/\d{8}_\d{6}/\d{8} - Ahead Health - Senior Product Engineer/job_description_raw\.txt$",
+        )
+        self.assertRegex(
+            copy_call.parameters.destination_path,
+            r"data/outputs/\d{8}_\d{6}/\d{8} - Ahead Health - Senior Product Engineer/job_description_copy\.txt$",
+        )
+
     def test_first_step_wins_when_top_level_action_conflicts(self):
         state = runtime.create_conversation_state()
 
@@ -527,12 +1043,12 @@ class ConversationRuntimeTests(unittest.TestCase):
             "assistant.runtime.call_llm",
             return_value=_planner_response(
                 action="create_job_files",
-                arguments={"job_folder": "data/jobs/wrong-folder"},
+                arguments={"job_folder": "data/inputs/jobs/wrong-folder"},
                 steps=[
                     {
                         "action": "write_document",
                         "arguments": {
-                            "destination_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                            "destination_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
                             "content": "Long pasted job description text\nwith multiple lines\nand details",
                         },
                     },
@@ -575,14 +1091,14 @@ class ConversationRuntimeTests(unittest.TestCase):
             return_value=_planner_response(
                 action="write_document",
                 arguments={
-                    "destination_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                    "destination_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
                     "content": "Company\nRole\nFull pasted text",
                 },
                 steps=[
                     {
                         "action": "write_document",
                         "arguments": {
-                            "destination_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                            "destination_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
                             "content": "Company\nRole\nFull pasted text",
                         },
                     },
@@ -643,19 +1159,19 @@ class ConversationRuntimeTests(unittest.TestCase):
                     {
                         "action": "write_document",
                         "arguments": {
-                            "destination_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                            "destination_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
                         },
                     },
                     {
                         "action": "create_job_files",
                         "arguments": {
-                            "job_folder": "data/jobs/20260412 - Company - Role",
+                            "job_folder": "data/outputs/20260412 - Company - Role",
                         },
                     },
                     {
                         "action": "evaluate_documents",
                         "arguments": {
-                            "input_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                            "input_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
                             "instructions": "Analyze this job advertisement.",
                         },
                     },
@@ -711,7 +1227,7 @@ class ConversationRuntimeTests(unittest.TestCase):
                     {
                         "action": "write_document",
                         "arguments": {
-                            "destination_path": "data/jobs/20260412 - Company Beta - Role Beta/job_description_raw.txt",
+                            "destination_path": "data/outputs/20260412 - Company Beta - Role Beta/job_description_raw.txt",
                         },
                     },
                     {
@@ -760,26 +1276,34 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         with patch(
             "assistant.runtime.call_llm",
-            return_value=_planner_response(
-                action=None,
-                arguments={},
-                steps=[
-                    {
-                        "action": "write_document",
-                        "arguments": {
-                            "destination_path": "data/jobs/20260412 - Company - Role/job_description_raw.txt",
+            side_effect=[
+                _planner_response(
+                    action=None,
+                    arguments={},
+                    steps=[
+                        {
+                            "action": "write_document",
+                            "arguments": {
+                                "destination_path": "data/outputs/20260412 - Company - Role/job_description_raw.txt",
+                            },
                         },
-                    },
-                    {
-                        "action": "create_job_files",
-                        "arguments": {
-                            "job_folder": "data/jobs/20260412 - Company - Role",
+                        {
+                            "action": "create_job_files",
+                            "arguments": {
+                                "job_folder": "data/outputs/20260412 - Company - Role",
+                            },
                         },
-                    },
-                ],
-                assistant_message=planner_message,
-                reasoning="The user pasted a job ad and wants it analyzed.",
-            ),
+                    ],
+                    assistant_message=planner_message,
+                    reasoning="The user pasted a job ad and wants it analyzed.",
+                ),
+                _planner_response(
+                    action=None,
+                    turn_intent="respond",
+                    assistant_message="There is nothing pending to confirm yet.",
+                    confirmation_required=False,
+                ),
+            ],
         ), patch("assistant.runtime.log_activity_event"):
             result = runtime.plan_chat_turn(
                 state,
@@ -867,7 +1391,15 @@ class ConversationRuntimeTests(unittest.TestCase):
 
         with patch(
             "assistant.runtime.call_llm",
-            return_value=_planner_response(action="run_job_agent"),
+            side_effect=[
+                _planner_response(action="run_job_agent"),
+                _planner_response(
+                    action="run_job_agent",
+                    turn_intent="execute",
+                    assistant_message="",
+                    reasoning="The user confirmed the already pending validated plan.",
+                ),
+            ],
         ), patch("assistant.runtime.log_activity_event"):
             initial = runtime.plan_chat_turn(
                 state,
@@ -922,13 +1454,100 @@ class ConversationRuntimeTests(unittest.TestCase):
         )
         self.assertGreaterEqual(log_activity_event.call_count, 2)
 
+    def test_search_web_execution_prints_results_in_chat_when_no_output_file(self):
+        state = runtime.create_conversation_state()
+        state.pending_tool_calls = [
+            PlannedToolCall(
+                tool_name="search_web",
+                parameters=runtime.TOOLS["search_web"].arg_model(
+                    query="Mickey Mouse",
+                    max_results=3,
+                ),
+                request_id="req-1",
+            ),
+        ]
+        state.pending_tool_call = state.pending_tool_calls[0]
+        state.confirmation_state = "confirmed"
+
+        with patch(
+            "assistant.runtime.execute_tool_call",
+            return_value=iter(
+                [
+                    "Starting web search workflow...\n",
+                    "Query: Mickey Mouse\n",
+                    "Max results: 3\n",
+                    "Found 2 result(s) for: Mickey Mouse\n",
+                    "1. Mickey Mouse & Friends | Official Disney Site\n",
+                    "   URL: https://mickey.disney.com/\n",
+                    "2. Mickey Mouse - Wikipedia\n",
+                    "   URL: https://en.wikipedia.org/wiki/Mickey_Mouse\n",
+                    "Workflow finished.\n",
+                ]
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            execution_result = runtime.execute_pending_tool_call(
+                state,
+                turn_id="turn-1",
+            )
+            runtime.apply_execution_result(
+                state,
+                execution_result,
+                turn_id="turn-1",
+            )
+
+        self.assertIn("Found 2 result(s) for: Mickey Mouse", state.messages[-1].content)
+        self.assertIn("https://mickey.disney.com/", state.messages[-1].content)
+        self.assertNotIn("`search_web` finished.", state.messages[-1].content)
+
+    def test_execution_collapses_nested_output_path_to_timestamp_root(self):
+        state = runtime.create_conversation_state()
+        state.pending_tool_calls = [
+            PlannedToolCall(
+                tool_name="write_document",
+                parameters=WriteDocumentArgs(
+                    destination_path="/Users/z/dev/domo/Domo_AI_agent/data/outputs/20260412_120000/job/job_description_raw.txt",
+                    content="Job text",
+                ),
+                request_id="req-1",
+            ),
+        ]
+        state.pending_tool_call = state.pending_tool_calls[0]
+        state.confirmation_state = "confirmed"
+
+        with patch(
+            "assistant.runtime.execute_tool_call",
+            return_value=iter(
+                ["Wrote document\n", "Output written to: data/outputs/20260412_120000/job/job_description_raw.txt\n"]
+            ),
+        ), patch("assistant.runtime.log_activity_event"):
+            execution_result = runtime.execute_pending_tool_call(
+                state,
+                turn_id="turn-1",
+            )
+            runtime.apply_execution_result(
+                state,
+                execution_result,
+                turn_id="turn-1",
+            )
+
+        self.assertEqual(
+            state.context.execution["last_output_folder"].value,
+            "data/outputs/20260412_120000",
+        )
+        self.assertTrue(
+            re.search(
+                r"Output written to `data/outputs/20260412_120000`",
+                state.messages[-1].content,
+            )
+        )
+
     def test_multi_step_execution_runs_each_validated_call_in_order(self):
         state = runtime.create_conversation_state()
         state.pending_tool_calls = [
             PlannedToolCall(
                 tool_name="write_document",
                 parameters=WriteDocumentArgs(
-                    destination_path="/Users/z/dev/domo/Domo_AI_agent/data/jobs/20260412 - Company - Role/job_description_raw.txt",
+                    destination_path="/Users/z/dev/domo/Domo_AI_agent/data/outputs/20260412 - Company - Role/job_description_raw.txt",
                     content="Job text",
                 ),
                 request_id="req-1",
@@ -936,15 +1555,15 @@ class ConversationRuntimeTests(unittest.TestCase):
             PlannedToolCall(
                 tool_name="create_job_files",
                 parameters=CreateJobFilesArgs(
-                    job_folder="/Users/z/dev/domo/Domo_AI_agent/data/jobs/20260412 - Company - Role",
+                    job_folder="/Users/z/dev/domo/Domo_AI_agent/data/outputs/20260412 - Company - Role",
                 ),
                 request_id="req-2",
             ),
             PlannedToolCall(
                 tool_name="match_cv",
                 parameters=MatchCvArgs(
-                    job_folder="/Users/z/dev/domo/Domo_AI_agent/data/jobs/20260412 - Company - Role",
-                    cvs_folder="/Users/z/dev/domo/Domo_AI_agent/data/cvs",
+                    job_folder="/Users/z/dev/domo/Domo_AI_agent/data/outputs/20260412 - Company - Role",
+                    cvs_folder="/Users/z/dev/domo/Domo_AI_agent/data/inputs/cvs",
                 ),
                 request_id="req-3",
             ),

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
+from assistant.config import get_paths
 from tools.job import match_cv
 
 
@@ -93,6 +94,8 @@ class MatchCvParsingTests(unittest.TestCase):
 
             cvs_folder = temp_root / "cvs"
             cvs_folder.mkdir()
+            outputs_root = temp_root / "outputs"
+            outputs_root.mkdir()
             _write_pdf(
                 cvs_folder / "Candidate.pdf",
                 [
@@ -109,14 +112,30 @@ class MatchCvParsingTests(unittest.TestCase):
                     '"weaknesses": ["Limited finance context"], '
                     '"fit_summary": "Strong frontend fit."}'
                 ),
+            ), patch.object(
+                match_cv,
+                "get_paths",
+                return_value={
+                    "data_root": temp_root,
+                    "inputs_root": temp_root / "inputs",
+                    "jobs_root": temp_root / "jobs",
+                    "documents_root": temp_root / "documents",
+                    "outputs_root": outputs_root,
+                    "cvs_root": cvs_folder,
+                    "logs_root": outputs_root / "logs",
+                },
             ):
                 output = "".join(match_cv.match_cv(str(job_folder), str(cvs_folder)))
 
             self.assertIn("Loading job description: UI Engineer", output)
-            self.assertTrue((job_folder / "job_description_raw.txt").exists())
-            self.assertTrue((job_folder / "job_metadata.json").exists())
-            self.assertTrue((job_folder / "cv_match_analysis.json").exists())
-            self.assertTrue((job_folder / "cv_match_summary.txt").exists())
+            output_folders = list(outputs_root.glob("*/20260329 - Recruiting Partner - UI Engineer"))
+            self.assertEqual(len(output_folders), 1)
+            output_folder = output_folders[0]
+            self.assertTrue((output_folder / "job_description_raw.txt").exists())
+            self.assertTrue((output_folder / "job_metadata.json").exists())
+            self.assertTrue((output_folder / "cv_match_analysis.json").exists())
+            self.assertTrue((output_folder / "cv_match_summary.txt").exists())
+            self.assertFalse((job_folder / "job_description_raw.txt").exists())
 
 
 if __name__ == "__main__":

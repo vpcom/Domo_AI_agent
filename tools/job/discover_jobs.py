@@ -13,6 +13,7 @@ from assistant.config import (
     get_job_search_config,
     get_prompt_override_fields,
 )
+from tools.job.filesystem import save_json, save_text
 from tools.job.models import JobState
 from tools.job.text_normalization import normalize_job_posting_text
 
@@ -192,15 +193,11 @@ def discover_jobs_from_config(config: dict) -> List[Dict[str, str]]:
 
 
 def save_discovered_job(raw_file: Path, metadata_file: Path, job: Dict[str, str]) -> None:
-    raw_file.parent.mkdir(parents=True, exist_ok=True)
-    metadata_file.parent.mkdir(parents=True, exist_ok=True)
-
     normalized_description = normalize_job_posting_text(job["description"])
-    raw_file.write_text(normalized_description, encoding="utf-8")
+    save_text(raw_file, normalized_description)
     job_to_save = dict(job)
     job_to_save["description"] = normalized_description
-    with open(metadata_file, "w", encoding="utf-8") as handle:
-        json.dump(job_to_save, handle, indent=2)
+    save_json(metadata_file, job_to_save)
     print(f"[discover] wrote raw_file={raw_file}")
     print(f"[discover] wrote metadata_file={metadata_file}")
 

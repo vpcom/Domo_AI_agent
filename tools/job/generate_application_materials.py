@@ -1,6 +1,7 @@
 import json
 
 from integrations.ollama_client import call_llm
+from tools.job.filesystem import save_text
 from tools.job.models import JobState
 from tools.job.prompts import build_generation_prompt
 
@@ -60,7 +61,7 @@ def parse_json_response(raw_text: str) -> dict:
 
 
 def build_application_notes_from_job_description(cleaned_job_text: str) -> str:
-    return generate_application_materials(cleaned_job_text)["notes"]
+    return generate_application_materials(cleaned_job_text)["info"]
 
 
 def _normalize_text(value) -> str:
@@ -85,7 +86,7 @@ def _normalize_list(value) -> list[str]:
 
 
 def generate_application_materials(cleaned_job_text: str) -> dict:
-    print(f"[notes] generating materials from cleaned characters={len(cleaned_job_text)}")
+    print(f"[info] generating materials from cleaned characters={len(cleaned_job_text)}")
     generation_prompt = build_generation_prompt(cleaned_job_text)
     raw_response = call_llm(generation_prompt)
     data = parse_json_response(raw_response)
@@ -100,7 +101,7 @@ def generate_application_materials(cleaned_job_text: str) -> dict:
     skills_block = "\n".join(f"- {skill}" for skill in skills)
     strengths_block = "\n".join(f"- {strength}" for strength in key_strengths)
 
-    notes = f"""SUMMARY
+    info = f"""SUMMARY
 {summary}
 
 KEY SKILLS
@@ -119,39 +120,16 @@ COVER LETTER
 {cover_letter}
 """
 
-    sample_cv = f"""CV SUMMARY
-{cv_summary}
-
-CORE SKILLS
-{skills_block}
-
-KEY STRENGTHS
-{strengths_block}
-
-CV BASE TEXTS
-{cv_base_texts}
-"""
-
     return {
-        "notes": notes,
-        "summary": summary,
-        "skills": skills_block,
-        "sample_cv": sample_cv,
+        "info": info,
     }
 
 
 # AGENT TOOL ENTRYPOINT
 def run(state: JobState) -> None:
-    print(f"[notes] reading cleaned_file={state.cleaned_file}")
+    print(f"[info] reading cleaned_file={state.cleaned_file}")
     cleaned_text = state.cleaned_file.read_text(encoding="utf-8")
     materials = generate_application_materials(cleaned_text)
 
-    state.notes_file.parent.mkdir(parents=True, exist_ok=True)
-    state.notes_file.write_text(materials["notes"], encoding="utf-8")
-    state.summary_file.write_text(materials["summary"], encoding="utf-8")
-    state.skills_file.write_text(materials["skills"], encoding="utf-8")
-    state.cv_file.write_text(materials["sample_cv"], encoding="utf-8")
-    print(f"[notes] wrote notes_file={state.notes_file}")
-    print(f"[notes] wrote summary_file={state.summary_file}")
-    print(f"[notes] wrote skills_file={state.skills_file}")
-    print(f"[notes] wrote cv_file={state.cv_file}")
+    save_text(state.info_file, materials["info"])
+    print(f"[info] wrote info_file={state.info_file}")

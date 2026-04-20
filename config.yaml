@@ -5,10 +5,12 @@ debug:
 
 paths:
   data_root: data
-  jobs_root: data/jobs
+  inputs_root: data/inputs
+  jobs_root: data/inputs/jobs
+  documents_root: data/inputs/documents
+  cvs_root: data/inputs/cvs
   outputs_root: data/outputs
-  cvs_root: data/cvs
-  logs_root: data/logs
+  logs_root: data/outputs/logs
 
 ollama:
   base_url: http://localhost:11434

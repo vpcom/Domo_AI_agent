@@ -10,6 +10,7 @@ class WorkflowRegistryTests(unittest.TestCase):
         self.assertIs(TOOLS["run_job_agent"].executor, WORKFLOWS["run_job_agent"])
         self.assertIs(TOOLS["create_job_files"].executor, WORKFLOWS["create_job_files"])
         self.assertIs(TOOLS["match_cv"].executor, WORKFLOWS["match_cv"])
+        self.assertIs(TOOLS["search_web"].executor, WORKFLOWS["search_web"])
         self.assertIs(TOOLS["copy_file"].executor, WORKFLOWS["copy_file"])
         self.assertIs(TOOLS["write_document"].executor, WORKFLOWS["write_document"])
         self.assertIs(TOOLS["read_documents"].executor, WORKFLOWS["read_documents"])
@@ -78,6 +79,24 @@ class WorkflowRegistryTests(unittest.TestCase):
         self.assertEqual(chunks[0], "Starting CV matching workflow...\n")
         self.assertEqual(chunks[1], "Resolved job input: /tmp/job-folder\n")
         self.assertEqual(chunks[2], "Resolved CV input: /tmp/cvs-folder\n")
+        self.assertEqual(chunks[3], "tool chunk\n")
+        self.assertEqual(chunks[-1], "Workflow finished.\n")
+
+    def test_search_web_workflow_has_consistent_wrapper_output(self):
+        with patch(
+            "workflows.web_search_workflow.search_web",
+            return_value=iter(["tool chunk\n"]),
+        ):
+            chunks = list(
+                TOOLS["search_web"].executor(
+                    query="example query",
+                    max_results=3,
+                )
+            )
+
+        self.assertEqual(chunks[0], "Starting web search workflow...\n")
+        self.assertEqual(chunks[1], "Query: example query\n")
+        self.assertEqual(chunks[2], "Max results: 3\n")
         self.assertEqual(chunks[3], "tool chunk\n")
         self.assertEqual(chunks[-1], "Workflow finished.\n")
 

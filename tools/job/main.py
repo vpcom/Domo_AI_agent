@@ -1,5 +1,5 @@
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from assistant.config import get_paths
@@ -18,30 +18,26 @@ from tools.job.generate_application_materials import run as generate_application
 from tools.job.job_folder_resolution import resolve_job_folder_hint
 from tools.job.local_job_inputs import (
     CLEANED_DESCRIPTION_FILE,
-    PDF_DESCRIPTION_FILE,
-    RAW_DESCRIPTION_FILE,
-    ensure_local_job_inputs,
-    find_cleaned_job_description_file,
+    METADATA_FILE,
+    ResolvedLocalJobInputs,
+    resolve_local_job_inputs,
 )
+from tools.job.filesystem import save_json, save_text
 from tools.job.models import JobState
 
 PATHS = get_paths()
-DATA_ROOT = PATHS["data_root"]
 JOBS_ROOT = PATHS["jobs_root"]
 OUTPUTS_ROOT = PATHS["outputs_root"]
 
 
-def build_state(job_folder: Path, output_folder: Path) -> JobState:
+def build_state(output_folder: Path) -> JobState:
     return JobState(
         folder=output_folder,
-        raw_file=job_folder / RAW_DESCRIPTION_FILE,
-        metadata_file=job_folder / "job_metadata.json",
+        raw_file=output_folder / "job_description_raw.txt",
+        metadata_file=output_folder / METADATA_FILE,
         cleaned_file=output_folder / CLEANED_DESCRIPTION_FILE,
         pdf_file=output_folder / "job_description.pdf",
-        notes_file=output_folder / "application_notes.txt",
-        summary_file=output_folder / "summary.txt",
-        skills_file=output_folder / "skills.txt",
-        cv_file=output_folder / "sample_cv.txt",
+        info_file=output_folder / "info.txt",
     )
 
 
@@ -62,8 +58,7 @@ def run_state_from_cleaned(state: JobState, cleaned_source_file: Path) -> None:
         raise FileNotFoundError(f"Missing input file: {cleaned_source_file}")
 
     cleaned_text = cleaned_source_file.read_text(encoding="utf-8")
-    state.cleaned_file.parent.mkdir(parents=True, exist_ok=True)
-    state.cleaned_file.write_text(cleaned_text, encoding="utf-8")
+    save_text(state.cleaned_file, cleaned_text)
     print(f"[job] staged cleaned_file={state.cleaned_file}")
 
     export_job_pdf(state)
@@ -71,50 +66,65 @@ def run_state_from_cleaned(state: JobState, cleaned_source_file: Path) -> None:
     print(f"[job] completed output={state.folder}")
 
 
-def resolve_job_folder(job_folder_arg: str) -> tuple[Path, str]:
+def resolve_job_folder(job_folder_arg: str) -> tuple[Path, ResolvedLocalJobInputs]:
     job_folder = resolve_job_folder_hint(job_folder_arg, ROOT, JOBS_ROOT)
 
     if not job_folder.exists():
         raise FileNotFoundError(
             f"Job folder does not exist: {job_folder}\n"
-            f"Pass an existing folder containing `{RAW_DESCRIPTION_FILE}` or "
+            "Pass an existing folder containing `job_description_raw.txt` or "
             f"`{CLEANED_DESCRIPTION_FILE}`, `job_description.txt`, `job description.txt`, "
-            f"`{PDF_DESCRIPTION_FILE}`, or `job description.pdf`, or use batch mode with no argument."
+            "`job_description.pdf`, or `job description.pdf`, or use batch mode with no argument."
         )
 
     if not job_folder.is_dir():
         raise ValueError(f"Job path is not a folder: {job_folder}")
 
-    raw_file = job_folder / RAW_DESCRIPTION_FILE
-    cleaned_file = find_cleaned_job_description_file(job_folder)
-    if raw_file.exists():
-        return job_folder, "raw"
-    if cleaned_file is not None:
-        return job_folder, "cleaned"
-    ensure_local_job_inputs(job_folder)
-    if raw_file.exists():
-        return job_folder, "raw"
+    resolved_inputs = resolve_local_job_inputs(job_folder)
+    if resolved_inputs is not None:
+        return job_folder, resolved_inputs
 
     raise FileNotFoundError(
-        f"Folder does not contain `{RAW_DESCRIPTION_FILE}`, `{CLEANED_DESCRIPTION_FILE}`, "
-        f"`job_description.txt`, `job description.txt`, `{PDF_DESCRIPTION_FILE}`, or `job description.pdf`: {job_folder}"
+        f"Folder does not contain `job_description_raw.txt`, `{CLEANED_DESCRIPTION_FILE}`, "
+        f"`job_description.txt`, `job description.txt`, `job_description.pdf`, or `job description.pdf`: {job_folder}"
     )
 
 
+def _build_run_output_root() -> Path:
+    candidate_time = datetime.now().replace(microsecond=0)
+    candidate = OUTPUTS_ROOT / candidate_time.strftime("%Y%m%d_%H%M%S")
+    while candidate.exists():
+        candidate_time += timedelta(seconds=1)
+        candidate = OUTPUTS_ROOT / candidate_time.strftime("%Y%m%d_%H%M%S")
+    return candidate
+
+
+def _stage_resolved_inputs(
+    state: JobState,
+    resolved_inputs: ResolvedLocalJobInputs,
+) -> None:
+    if resolved_inputs.mode == "raw":
+        if resolved_inputs.raw_text is None:
+            raise ValueError("Resolved raw inputs are missing raw text.")
+        save_text(state.raw_file, resolved_inputs.raw_text)
+
+    if resolved_inputs.metadata is not None:
+        save_json(state.metadata_file, resolved_inputs.metadata)
+
+
 def run_single(job_folder_arg: str) -> None:
-    job_folder, input_mode = resolve_job_folder(job_folder_arg)
-    output_folder = OUTPUTS_ROOT / datetime.now().strftime("%Y%m%d_%H%M%S")
-    print(f"[run] mode=single job_folder={job_folder} input_mode={input_mode}")
+    job_folder, resolved_inputs = resolve_job_folder(job_folder_arg)
+    run_output_root = _build_run_output_root()
+    output_folder = run_output_root / job_folder.name
+    print(f"[run] mode=single job_folder={job_folder} input_mode={resolved_inputs.mode}")
     print(f"[run] output_folder={output_folder}")
-    state = build_state(job_folder, output_folder)
-    if input_mode == "raw":
+    state = build_state(output_folder)
+    _stage_resolved_inputs(state, resolved_inputs)
+    if resolved_inputs.mode == "raw":
         run_state(state)
     else:
-        cleaned_source_file = find_cleaned_job_description_file(job_folder)
-        if cleaned_source_file is None:
-            raise FileNotFoundError(f"Missing cleaned job description in {job_folder}")
-        run_state_from_cleaned(state, cleaned_source_file)
-    print(f"Done. Output written to: {state.folder}")
+        run_state_from_cleaned(state, resolved_inputs.source_file)
+    print(f"Done. Output written to: {run_output_root}")
 
 
 def run_batch() -> None:
@@ -130,17 +140,16 @@ def run_batch() -> None:
         f"max_company_attempts_per_source={config.get('max_company_attempts_per_source', 'all')}"
     )
     jobs = discover_jobs_from_config(config)
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_output_root = OUTPUTS_ROOT / run_timestamp
+    run_output_root = _build_run_output_root()
     date_prefix = datetime.now().strftime("%Y%m%d")
 
     print(f"[run] discovered {len(jobs)} matching job(s)")
     print(f"[run] batch_output_root={run_output_root}")
 
     for index, job in enumerate(jobs, start=1):
-        job_folder = build_job_folder_path(job, JOBS_ROOT, date_prefix)
+        job_folder = build_job_folder_path(job, run_output_root, date_prefix)
         raw_file = job_folder / "job_description_raw.txt"
-        metadata_file = job_folder / "job_metadata.json"
+        metadata_file = job_folder / METADATA_FILE
         print(
             f"[run] preparing job {index}/{len(jobs)} "
             f"company={job['company']} title={job['title']} "
@@ -149,12 +158,10 @@ def run_batch() -> None:
         print(f"[run] job_folder={job_folder}")
         save_discovered_job(raw_file, metadata_file, job)
 
-        output_folder = run_output_root / job_folder.name
-        print(f"[run] output_folder={output_folder}")
-        state = build_state(job_folder, output_folder)
+        state = build_state(job_folder)
         run_state(state)
 
-    print(f"Done. Processed {len(jobs)} jobs.")
+    print(f"Done. Output written to: {run_output_root}")
 
 
 def main() -> None:
@@ -164,9 +171,9 @@ def main() -> None:
 
     if len(sys.argv) != 2:
         raise ValueError(
-            'Usage: python -m tools.job.main "data/jobs/YYYYMMDD - Company - Role"\n'
+            'Usage: python -m tools.job.main "data/inputs/jobs/YYYYMMDD - Company - Role"\n'
             '   or: python -m tools.job.main "company-name"\n'
-            '   or: python -m tools.job.main "data/jobs/some-folder-with-cleaned-job-description"\n'
+            '   or: python -m tools.job.main "data/inputs/jobs/some-folder-with-cleaned-job-description"\n'
             "   or: python -m tools.job.main"
         )
 

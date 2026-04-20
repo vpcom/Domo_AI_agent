@@ -9,7 +9,7 @@ from tools.job.job_folder_resolution import (
     find_best_matching_job_folder,
     resolve_job_folder_hint,
 )
-from tools.job.local_job_inputs import ensure_local_job_inputs, infer_local_pdf_metadata
+from tools.job.local_job_inputs import infer_local_pdf_metadata, resolve_local_job_inputs
 
 
 class JobFolderResolutionTests(unittest.TestCase):
@@ -32,7 +32,7 @@ class JobFolderResolutionTests(unittest.TestCase):
     def test_resolve_job_folder_hint_can_use_company_name_only(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             project_root = Path(tmp_dir)
-            jobs_root = project_root / "data" / "jobs"
+            jobs_root = project_root / "data" / "inputs" / "jobs"
             jobs_root.mkdir(parents=True)
             target = jobs_root / "20260329 - company-alpha - Application Engineer II"
             target.mkdir()
@@ -46,7 +46,7 @@ class JobFolderResolutionTests(unittest.TestCase):
 
             self.assertEqual(resolved, target.resolve())
 
-    def test_ensure_local_job_inputs_bootstraps_raw_and_metadata_from_pdf(self):
+    def test_resolve_local_job_inputs_bootstraps_raw_and_metadata_from_pdf(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             folder = Path(tmp_dir) / "20260329 - company-alpha - Application Engineer II"
             folder.mkdir()
@@ -57,16 +57,17 @@ class JobFolderResolutionTests(unittest.TestCase):
             pdf.drawString(72, 780, "Build services and ship backend systems.")
             pdf.save()
 
-            ensure_local_job_inputs(folder)
+            resolved = resolve_local_job_inputs(folder)
 
-            raw_file = folder / "job_description_raw.txt"
-            metadata_file = folder / "job_metadata.json"
-            self.assertTrue(raw_file.exists())
-            self.assertTrue(metadata_file.exists())
-            self.assertIn("Application Engineer II", raw_file.read_text(encoding="utf-8"))
-            self.assertIn('"company": "company-alpha"', metadata_file.read_text(encoding="utf-8").lower())
+            self.assertIsNotNone(resolved)
+            self.assertEqual(resolved.mode, "raw")
+            self.assertIsNotNone(resolved.raw_text)
+            self.assertIn("Application Engineer II", resolved.raw_text)
+            self.assertEqual(resolved.metadata["company"].lower(), "company-alpha")
+            self.assertFalse((folder / "job_description_raw.txt").exists())
+            self.assertFalse((folder / "job_metadata.json").exists())
 
-    def test_ensure_local_job_inputs_bootstraps_raw_from_spaced_text_file(self):
+    def test_resolve_local_job_inputs_bootstraps_raw_from_spaced_text_file(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             folder = Path(tmp_dir) / "20260329 - Recruiting Partner - UI Engineer"
             folder.mkdir()
@@ -76,14 +77,15 @@ class JobFolderResolutionTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            ensure_local_job_inputs(folder)
+            resolved = resolve_local_job_inputs(folder)
 
-            raw_file = folder / "job_description_raw.txt"
-            metadata_file = folder / "job_metadata.json"
-            self.assertTrue(raw_file.exists())
-            self.assertTrue(metadata_file.exists())
-            self.assertIn("UI Engineer", raw_file.read_text(encoding="utf-8"))
-            self.assertIn('"company": "recruiting partner"', metadata_file.read_text(encoding="utf-8").lower())
+            self.assertIsNotNone(resolved)
+            self.assertEqual(resolved.mode, "raw")
+            self.assertIsNotNone(resolved.raw_text)
+            self.assertIn("UI Engineer", resolved.raw_text)
+            self.assertEqual(resolved.metadata["company"].lower(), "recruiting partner")
+            self.assertFalse((folder / "job_description_raw.txt").exists())
+            self.assertFalse((folder / "job_metadata.json").exists())
 
     def test_infer_local_pdf_metadata_uses_folder_name(self):
         metadata = infer_local_pdf_metadata(

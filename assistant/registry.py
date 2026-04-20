@@ -8,6 +8,7 @@ from assistant.schemas import (
     MatchCvArgs,
     ReadDocumentsArgs,
     RunJobAgentArgs,
+    SearchWebArgs,
     SummarizeDocumentsArgs,
     WriteDocumentArgs,
 )
@@ -21,6 +22,7 @@ from workflows.document_workflows import (
 from workflows.create_job_files_workflow import run_create_job_files_workflow
 from workflows.match_cv_workflow import run_match_cv_workflow
 from workflows.run_job_agent_workflow import run_job_agent_workflow
+from workflows.web_search_workflow import run_web_search_workflow
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,7 @@ WORKFLOWS = {
     "run_job_agent": run_job_agent_workflow,
     "create_job_files": run_create_job_files_workflow,
     "match_cv": run_match_cv_workflow,
+    "search_web": run_web_search_workflow,
     "copy_file": run_copy_file_workflow,
     "write_document": run_write_document_workflow,
     "read_documents": run_read_documents_workflow,
@@ -78,13 +81,23 @@ TOOLS = {
         aliases=("create job files", "prepare documents", "generate application files"),
         executor=WORKFLOWS["create_job_files"],
     ),
+    "search_web": ToolSpec(
+        name="search_web",
+        arg_model=SearchWebArgs,
+        argument_keys=("query", "max_results", "output_path"),
+        required_keys=("query",),
+        context_keys=("query", "max_results", "output_path"),
+        description="Search the web and return the top public search results.",
+        aliases=("web search", "internet search", "search the internet", "search the web"),
+        executor=WORKFLOWS["search_web"],
+    ),
     "copy_file": ToolSpec(
         name="copy_file",
         arg_model=CopyFileArgs,
         argument_keys=("source_path", "destination_path"),
         required_keys=("source_path", "destination_path"),
         context_keys=("source_path", "destination_path"),
-        description="Copy a file within the project's data directories.",
+        description="Copy a file from the project into the outputs directory without overwriting.",
         aliases=("copy file", "duplicate file", "copy document"),
         executor=WORKFLOWS["copy_file"],
     ),
@@ -94,7 +107,7 @@ TOOLS = {
         argument_keys=("destination_path", "content"),
         required_keys=("destination_path", "content"),
         context_keys=("destination_path",),
-        description="Write a text document under the jobs or outputs directories and create parent folders if needed.",
+        description="Write a new text document under the outputs directory without overwriting.",
         aliases=("write file", "write document", "save text", "create file"),
         executor=WORKFLOWS["write_document"],
     ),

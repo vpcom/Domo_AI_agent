@@ -1,14 +1,22 @@
 import json
-import shutil
 from pathlib import Path
 
 from assistant.config import get_paths
 from integrations.ollama_client import call_llm
-from tools.job.filesystem import save_text
+from tools.job.filesystem import copy_file_no_overwrite, save_text
 from tools.job.pdf_utils import extract_pdf_text
 
 SUPPORTED_TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
-SUPPORTED_DOCUMENT_EXTENSIONS = SUPPORTED_TEXT_EXTENSIONS | {".pdf"}
+SUPPORTED_DOCUMENT_EXTENSIONS = SUPPORTED_TEXT_EXTENSIONS | {
+    ".pdf",
+    ".py",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".sh",
+    ".csv",
+}
 MAX_DOCUMENT_CHARACTERS = 20000
 
 CONFIGURED_PATHS = get_paths()
@@ -19,8 +27,7 @@ def copy_file(source_path: str, destination_path: str):
     source = Path(source_path)
     destination = Path(destination_path)
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
+    copy_file_no_overwrite(source, destination)
     yield f"Copied file: {source}\n"
     yield f"Output written to: {destination}\n"
 
@@ -116,7 +123,7 @@ def _read_document(path: Path) -> str:
     suffix = path.suffix.lower()
     if suffix == ".pdf":
         content = extract_pdf_text(path)
-    elif suffix in SUPPORTED_TEXT_EXTENSIONS:
+    elif suffix in SUPPORTED_DOCUMENT_EXTENSIONS:
         content = path.read_text(encoding="utf-8").strip()
     else:
         raise ValueError(f"Unsupported document type: {path.suffix}")

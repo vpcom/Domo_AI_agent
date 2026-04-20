@@ -112,7 +112,7 @@ st.markdown(
       />
       <div>
         <h1 style="margin:0;">Domo</h1>
-        <div style="color:#475569;">Chat, retained context, and workflow activity in one session.</div>
+        <div style="color:#475569;">Your private digital assistant</div>
       </div>
     </div>
     """,
@@ -303,7 +303,9 @@ def _activity_log_line(event: ActivityEvent) -> str:
     timestamp = event.timestamp.astimezone().strftime("%H:%M:%S")
     category = event.category.capitalize()
     summary = escape(event.summary.rstrip("."))
-    detail = f": {escape(event.detail)}" if event.detail else ""
+    detail = ""
+    if event.detail and not event.raw_lines:
+        detail = f": {escape(event.detail)}"
     return f"{escape(timestamp)}  {escape(category)}: {summary}{detail}"
 
 
@@ -313,19 +315,24 @@ def _render_activity_panel(current_state: ConversationState) -> None:
         st.caption("No activity recorded yet.")
         return
 
-    lines = [_activity_log_line(event)
-             for event in current_state.activity_events]
-    _render_text_section(
-        "Activity Logs",
-        [f"<span class='domo-log-line'>{line}</span>" for line in lines],
-    )
+    for index, event in enumerate(current_state.activity_events, start=1):
+        line = _activity_log_line(event)
+        st.markdown(
+            f"<div class='domo-section-line domo-log-line'>{line}</div>",
+            unsafe_allow_html=True,
+        )
+        if event.raw_lines:
+            with st.expander(_activity_expander_label(event, index)):
+                st.code("".join(event.raw_lines), language="text")
 
-    raw_events = [
-        event for event in current_state.activity_events if event.raw_lines]
-    for index, event in enumerate(raw_events, start=1):
-        title = event.summary or f"Workflow Run {index}"
-        with st.expander(f"Details {index}: {title}"):
-            st.code("".join(event.raw_lines), language="text")
+
+def _activity_expander_label(event: ActivityEvent, index: int) -> str:
+    summary = event.summary.rstrip(".")
+    if summary == "Planner prompt prepared":
+        return "Prompt"
+    if summary == "Planner raw response received":
+        return "Response"
+    return f"Details {index}: {summary or 'Event'}"
 
 
 header_left, header_right = st.columns([5, 1])

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import json
 from pathlib import Path
 
@@ -18,6 +19,15 @@ PDF_DESCRIPTION_SOURCE_FILES = (
     "job description.pdf",
 )
 METADATA_FILE = "job_metadata.json"
+
+
+@dataclass(frozen=True)
+class ResolvedLocalJobInputs:
+    mode: str
+    raw_text: str | None
+    cleaned_text: str | None
+    metadata: dict | None
+    source_file: Path
 
 
 def _find_first_existing_file(job_folder: Path, file_names: tuple[str, ...]) -> Path | None:
@@ -72,12 +82,49 @@ def infer_local_pdf_metadata(job_folder: Path, description: str) -> dict:
     }
 
 
-def ensure_local_job_inputs(job_folder: Path) -> None:
-    raw_file = job_folder / RAW_DESCRIPTION_FILE
+def _read_metadata_file(job_folder: Path) -> dict | None:
     metadata_file = job_folder / METADATA_FILE
+    if not metadata_file.exists() or not metadata_file.is_file():
+        return None
+    return json.loads(metadata_file.read_text(encoding="utf-8"))
 
+
+def resolve_local_job_inputs(job_folder: Path) -> ResolvedLocalJobInputs | None:
+    raw_file = job_folder / RAW_DESCRIPTION_FILE
     if raw_file.exists():
-        return
+        raw_text = normalize_job_posting_text(raw_file.read_text(encoding="utf-8"))
+        if not raw_text:
+            raise ValueError(f"Input file is empty: {raw_file}")
+        metadata = _read_metadata_file(job_folder) or infer_local_pdf_metadata(
+            job_folder,
+            raw_text,
+        )
+        return ResolvedLocalJobInputs(
+            mode="raw",
+            raw_text=raw_text,
+            cleaned_text=None,
+            metadata=metadata,
+            source_file=raw_file,
+        )
+
+    cleaned_file = find_cleaned_job_description_file(job_folder)
+    if cleaned_file is not None:
+        cleaned_text = normalize_job_posting_text(
+            cleaned_file.read_text(encoding="utf-8")
+        )
+        if not cleaned_text:
+            raise ValueError(f"Input file is empty: {cleaned_file}")
+        metadata = _read_metadata_file(job_folder) or infer_local_pdf_metadata(
+            job_folder,
+            cleaned_text,
+        )
+        return ResolvedLocalJobInputs(
+            mode="cleaned",
+            raw_text=None,
+            cleaned_text=cleaned_text,
+            metadata=metadata,
+            source_file=cleaned_file,
+        )
 
     text_source_file = find_source_text_job_description_file(job_folder)
     pdf_source_file = find_pdf_job_description_file(job_folder)
@@ -91,16 +138,22 @@ def ensure_local_job_inputs(job_folder: Path) -> None:
         print(f"[job] bootstrapping raw job input from pdf_file={pdf_source_file}")
         raw_text = normalize_job_posting_text(extract_pdf_text(pdf_source_file))
     else:
-        return
+        return None
 
     if not raw_text:
         source_file = text_source_file or pdf_source_file
         raise ValueError(f"No readable text could be extracted from {source_file}")
 
-    raw_file.write_text(raw_text, encoding="utf-8")
-    print(f"[job] wrote raw_file={raw_file}")
+    source_file = text_source_file or pdf_source_file
+    metadata = _read_metadata_file(job_folder) or infer_local_pdf_metadata(job_folder, raw_text)
+    return ResolvedLocalJobInputs(
+        mode="raw",
+        raw_text=raw_text,
+        cleaned_text=None,
+        metadata=metadata,
+        source_file=source_file,
+    )
 
-    if not metadata_file.exists():
-        metadata = infer_local_pdf_metadata(job_folder, raw_text)
-        metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-        print(f"[job] wrote metadata_file={metadata_file}")
+
+def ensure_local_job_inputs(job_folder: Path) -> None:
+    resolve_local_job_inputs(job_folder)

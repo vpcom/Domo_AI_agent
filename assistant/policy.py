@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -14,6 +16,7 @@ from assistant.schemas import (
     PlannedToolCall,
     ReadDocumentsArgs,
     RunJobAgentArgs,
+    SearchWebArgs,
     SummarizeDocumentsArgs,
     WriteDocumentArgs,
 )
@@ -22,12 +25,26 @@ from tools.job.job_folder_resolution import resolve_job_folder_hint
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIGURED_PATHS = get_paths()
+INPUTS_ROOT = CONFIGURED_PATHS["inputs_root"]
 JOBS_ROOT = CONFIGURED_PATHS["jobs_root"]
 OUTPUTS_ROOT = CONFIGURED_PATHS["outputs_root"]
 PROJECT_DATA_ROOT = CONFIGURED_PATHS["data_root"]
 CVS_ROOT = CONFIGURED_PATHS["cvs_root"]
 PLACEHOLDER_PATH_FRAGMENTS = ("/path/to", "\\path\\to", "<path>", "example/path")
-SUPPORTED_DOCUMENT_EXTENSIONS = {".txt", ".md", ".markdown", ".pdf"}
+OUTPUT_TIMESTAMP_PATTERN = re.compile(r"^\d{8}_\d{6}$")
+SUPPORTED_DOCUMENT_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".pdf",
+    ".py",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".sh",
+    ".csv",
+}
 SUPPORTED_WRITE_EXTENSIONS = {".txt", ".md", ".markdown", ".json"}
 INSTRUCTION_WORDS = ("how", "explain", "help", "setup", "parameter", "parameters")
 EXECUTION_WORDS = ("run", "execute", "process", "generate", "perform", "start")
@@ -62,6 +79,11 @@ TOOL_POLICIES = {
         max_tool_steps=1,
     ),
     "create_job_files": ToolPolicy(
+        requires_approval=False,
+        max_model_steps=1,
+        max_tool_steps=1,
+    ),
+    "search_web": ToolPolicy(
         requires_approval=False,
         max_model_steps=1,
         max_tool_steps=1,
@@ -138,6 +160,7 @@ def build_tool_args(
     RunJobAgentArgs
     | CreateJobFilesArgs
     | MatchCvArgs
+    | SearchWebArgs
     | CopyFileArgs
     | WriteDocumentArgs
     | ReadDocumentsArgs
@@ -175,16 +198,16 @@ def normalize_allowed_job_path(folder_path: str | None) -> str | None:
 
     candidate = resolve_job_folder_hint(stripped, PROJECT_ROOT, JOBS_ROOT)
 
-    allowed_roots = (JOBS_ROOT, OUTPUTS_ROOT, PROJECT_DATA_ROOT)
+    allowed_roots = (JOBS_ROOT, OUTPUTS_ROOT)
     if not any(root == candidate or root in candidate.parents for root in allowed_roots):
         raise ValueError(
-            "Job folder must stay within the project's data roots."
+            "Job folders must stay within the configured jobs inputs root or outputs root."
         )
 
     return str(candidate)
 
 
-def _resolve_project_data_path(path_value: str) -> Path:
+def _resolve_project_input_path(path_value: str) -> Path:
     stripped = path_value.strip()
     if not stripped:
         raise ValueError("A path value is required.")
@@ -200,12 +223,51 @@ def _resolve_project_data_path(path_value: str) -> Path:
         candidate = candidate.resolve()
 
     if not (
-        candidate == PROJECT_DATA_ROOT
-        or PROJECT_DATA_ROOT in candidate.parents
+        candidate == PROJECT_ROOT
+        or PROJECT_ROOT in candidate.parents
     ):
-        raise ValueError("Document paths must stay within the project's data roots.")
+        raise ValueError("Read paths must stay within the project root.")
 
     return candidate
+
+
+def _resolve_project_output_path(path_value: str) -> Path:
+    candidate = _resolve_project_input_path(path_value)
+    if not (
+        candidate == OUTPUTS_ROOT
+        or OUTPUTS_ROOT in candidate.parents
+    ):
+        raise ValueError(f"Writes must stay within {OUTPUTS_ROOT}.")
+    return candidate
+
+
+def build_timestamped_output_root() -> Path:
+    candidate_time = datetime.now().replace(microsecond=0)
+    candidate = OUTPUTS_ROOT / candidate_time.strftime("%Y%m%d_%H%M%S")
+    while candidate.exists():
+        candidate_time += timedelta(seconds=1)
+        candidate = OUTPUTS_ROOT / candidate_time.strftime("%Y%m%d_%H%M%S")
+    return candidate
+
+
+def _normalize_output_path_under_timestamp_root(
+    candidate: Path,
+    *,
+    output_root: Path | None,
+) -> Path:
+    relative_path = candidate.relative_to(OUTPUTS_ROOT)
+    parts = relative_path.parts
+    if not parts:
+        raise ValueError("A file path under the outputs root is required.")
+
+    first_part = parts[0]
+    if OUTPUT_TIMESTAMP_PATTERN.fullmatch(first_part):
+        normalized = candidate
+    else:
+        normalized_root = output_root or build_timestamped_output_root()
+        normalized = normalized_root / relative_path
+
+    return normalized
 
 
 def normalize_allowed_document_input_path(
@@ -216,14 +278,14 @@ def normalize_allowed_document_input_path(
     if path_value is None or not str(path_value).strip():
         raise ValueError("A document input path is required.")
 
-    candidate = _resolve_project_data_path(str(path_value))
+    candidate = _resolve_project_input_path(str(path_value))
     normalized_allowed_missing_paths = {
-        str(_resolve_project_data_path(item))
+        str(_resolve_project_input_path(item))
         for item in (allow_missing_paths or set())
     }
 
     if not candidate.exists() and str(candidate) not in normalized_allowed_missing_paths:
-        raise ValueError(f"Project data path does not exist: {candidate}")
+        raise ValueError(f"Project path does not exist: {candidate}")
 
     if candidate.exists() and candidate.is_file() and candidate.suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS:
         raise ValueError(
@@ -243,15 +305,21 @@ def normalize_allowed_existing_project_data_path(
     path_value: str | None,
     *,
     require_file: bool,
+    allow_missing_paths: set[str] | None = None,
 ) -> Path:
     if path_value is None or not str(path_value).strip():
         raise ValueError("A project data path is required.")
 
-    candidate = _resolve_project_data_path(str(path_value))
-    if not candidate.exists():
-        raise ValueError(f"Project data path does not exist: {candidate}")
+    candidate = _resolve_project_input_path(str(path_value))
+    normalized_allowed_missing_paths = {
+        str(_resolve_project_input_path(item))
+        for item in (allow_missing_paths or set())
+    }
 
-    if require_file and not candidate.is_file():
+    if not candidate.exists() and str(candidate) not in normalized_allowed_missing_paths:
+        raise ValueError(f"Project path does not exist: {candidate}")
+
+    if require_file and candidate.exists() and not candidate.is_file():
         raise ValueError(f"Expected a file path: {candidate}")
 
     return candidate
@@ -259,6 +327,8 @@ def normalize_allowed_existing_project_data_path(
 
 def normalize_allowed_document_output_path(
     path_value: str | None,
+    *,
+    output_root: Path | None = None,
 ) -> str | None:
     if path_value is None:
         return None
@@ -267,12 +337,18 @@ def normalize_allowed_document_output_path(
     if not stripped:
         return None
 
-    candidate = _resolve_project_data_path(stripped)
+    candidate = _resolve_project_output_path(stripped)
+    candidate = _normalize_output_path_under_timestamp_root(
+        candidate,
+        output_root=output_root,
+    )
     if candidate.suffix.lower() not in SUPPORTED_WRITE_EXTENSIONS:
         raise ValueError(
             f"Unsupported output document type: {candidate.suffix}. "
             f"Supported extensions: {sorted(SUPPORTED_WRITE_EXTENSIONS)}"
         )
+    if candidate.exists():
+        raise ValueError(f"Refusing to overwrite existing file: {candidate}")
     return str(candidate)
 
 
@@ -361,6 +437,9 @@ def validate_semantics(user_input: str, tool_name: str) -> None:
     if tool_name == "copy_file":
         return
 
+    if tool_name == "search_web":
+        return
+
     if tool_name == "write_document":
         return
 
@@ -380,6 +459,7 @@ def plan_tool_call(
         RunJobAgentArgs
         | CreateJobFilesArgs
         | MatchCvArgs
+        | SearchWebArgs
         | CopyFileArgs
         | WriteDocumentArgs
         | ReadDocumentsArgs
@@ -389,6 +469,7 @@ def plan_tool_call(
     user_input: str,
     request_id: str,
     allow_document_inputs: set[str] | None = None,
+    output_root: Path | None = None,
     skip_semantic_validation: bool = False,
 ) -> PlannedToolCall:
     if not skip_semantic_validation:
@@ -429,20 +510,45 @@ def plan_tool_call(
             job_folder=normalized_job_path,
             cvs_folder=normalize_allowed_cvs_path(args.cvs_folder),
         )
+    elif tool_name == "search_web":
+        query = (args.query or "").strip()
+        if not query:
+            raise ValueError("A web search query is required.")
+        max_results = args.max_results
+        if max_results is not None and max_results < 1:
+            raise ValueError("`max_results` must be at least 1.")
+        normalized_args = SearchWebArgs(
+            query=query,
+            max_results=max_results,
+            output_path=normalize_allowed_document_output_path(
+                args.output_path,
+                output_root=output_root,
+            ),
+        )
     elif tool_name == "copy_file":
+        destination_path = normalize_allowed_document_output_path(
+            args.destination_path,
+            output_root=output_root,
+        )
+        if destination_path is None:
+            raise ValueError("A destination path is required for copying a file.")
         normalized_args = CopyFileArgs(
             source_path=str(
                 normalize_allowed_existing_project_data_path(
                     args.source_path,
                     require_file=True,
+                    allow_missing_paths=allow_document_inputs,
                 )
             ),
-            destination_path=str(_resolve_project_data_path(args.destination_path)),
+            destination_path=destination_path,
         )
     elif tool_name == "write_document":
         if not args.content.strip():
             raise ValueError("Document content cannot be empty.")
-        destination_path = normalize_allowed_document_output_path(args.destination_path)
+        destination_path = normalize_allowed_document_output_path(
+            args.destination_path,
+            output_root=output_root,
+        )
         if destination_path is None:
             raise ValueError("A destination path is required for writing a document.")
         normalized_args = WriteDocumentArgs(
@@ -464,7 +570,10 @@ def plan_tool_call(
                 allow_missing_paths=allow_document_inputs,
             ),
             instructions=(args.instructions or "").strip() or None,
-            output_path=normalize_allowed_document_output_path(args.output_path),
+            output_path=normalize_allowed_document_output_path(
+                args.output_path,
+                output_root=output_root,
+            ),
             recursive=args.recursive,
         )
     elif tool_name == "evaluate_documents":
@@ -477,7 +586,10 @@ def plan_tool_call(
                 allow_missing_paths=allow_document_inputs,
             ),
             instructions=instructions,
-            output_path=normalize_allowed_document_output_path(args.output_path),
+            output_path=normalize_allowed_document_output_path(
+                args.output_path,
+                output_root=output_root,
+            ),
             recursive=args.recursive,
         )
     else:
@@ -491,7 +603,6 @@ def plan_tool_call(
         request_id=request_id,
         requires_approval=policy.requires_approval,
         reason=(
-            "This tool can fetch external content and write files under data/, "
-            "so it requires approval before execution."
+            "This tool may access project files, network resources, or create new files under data/outputs."
         ),
     )

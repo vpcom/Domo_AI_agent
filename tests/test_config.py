@@ -20,9 +20,11 @@ class ConfigTests(unittest.TestCase):
     def test_paths_are_loaded_from_shared_config(self):
         paths = get_paths()
 
-        self.assertTrue(str(paths["jobs_root"]).endswith("data/jobs"))
+        self.assertTrue(str(paths["inputs_root"]).endswith("data/inputs"))
+        self.assertTrue(str(paths["jobs_root"]).endswith("data/inputs/jobs"))
+        self.assertTrue(str(paths["documents_root"]).endswith("data/inputs/documents"))
         self.assertTrue(str(paths["outputs_root"]).endswith("data/outputs"))
-        self.assertTrue(str(paths["cvs_root"]).endswith("data/cvs"))
+        self.assertTrue(str(paths["cvs_root"]).endswith("data/inputs/cvs"))
 
     def test_job_search_loader_uses_shared_config(self):
         self.assertEqual(load_inputs_config(), get_job_search_config())

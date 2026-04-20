@@ -1,4 +1,5 @@
 from integrations.ollama_client import call_llm
+from tools.job.filesystem import save_text
 from tools.job.models import JobState
 from tools.job.prompts import build_cleaning_prompt
 from tools.job.text_normalization import normalize_job_posting_text
@@ -19,6 +20,5 @@ def run(state: JobState) -> None:
     cleaned = clean_job_description(raw_text)
     print(f"[clean] cleaned characters={len(cleaned)}")
 
-    state.cleaned_file.parent.mkdir(parents=True, exist_ok=True)
-    state.cleaned_file.write_text(cleaned, encoding="utf-8")
+    save_text(state.cleaned_file, cleaned)
     print(f"[clean] wrote cleaned_file={state.cleaned_file}")

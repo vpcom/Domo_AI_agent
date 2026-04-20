@@ -122,7 +122,7 @@ class JobSearchOverrideTests(unittest.TestCase):
             plan_tool_call(
                 "run_job_agent",
                 RunJobAgentArgs(
-                    folder_path="data/jobs/job_search",
+                    folder_path="data/inputs/jobs/job_search",
                     remote_only=True,
                 ),
                 "Run the local job folder and make it remote only",
@@ -132,12 +132,12 @@ class JobSearchOverrideTests(unittest.TestCase):
     def test_plan_tool_call_accepts_create_job_files_for_local_job_folder(self):
         planned = plan_tool_call(
             "create_job_files",
-            CreateJobFilesArgs(job_folder="data/jobs"),
+            CreateJobFilesArgs(job_folder="data/inputs/jobs"),
             "Process the local job folder and create the job files",
             "req-3",
         )
 
-        self.assertTrue(planned.parameters.job_folder.endswith("data/jobs"))
+        self.assertTrue(planned.parameters.job_folder.endswith("data/inputs/jobs"))
 
     def test_run_job_agent_passes_overrides_via_subprocess_env(self):
         fake_process = type(

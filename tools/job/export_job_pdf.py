@@ -7,6 +7,7 @@ except ModuleNotFoundError as exc:
         "`pip install -r requirements.txt`."
     ) from exc
 
+from tools.job.filesystem import ensure_new_file_path
 from tools.job.models import JobState
 
 
@@ -15,7 +16,7 @@ def run(state: JobState) -> None:
     content = state.cleaned_file.read_text(encoding="utf-8")
     print(f"[pdf] content characters={len(content)}")
 
-    state.pdf_file.parent.mkdir(parents=True, exist_ok=True)
+    ensure_new_file_path(state.pdf_file)
     print(f"[pdf] writing pdf_file={state.pdf_file}")
     pdf = canvas.Canvas(str(state.pdf_file), pagesize=A4)
     width, height = A4

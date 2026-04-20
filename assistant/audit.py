@@ -1,13 +1,15 @@
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from assistant.config import get_paths
 from assistant.schemas import ActivityEvent
 
 
-LOG_DIR = Path(__file__).resolve().parents[1] / "data" / "logs"
-LOG_FILE = LOG_DIR / "agent.log"
+LOG_DIR = get_paths()["logs_root"]
+LOG_FILE = LOG_DIR / f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.log"
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -8,6 +8,7 @@ ToolName = Literal[
     "run_job_agent",
     "create_job_files",
     "match_cv",
+    "search_web",
     "copy_file",
     "write_document",
     "read_documents",
@@ -47,6 +48,14 @@ class CreateJobFilesArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     job_folder: str
+
+
+class SearchWebArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str
+    max_results: int | None = None
+    output_path: str | None = None
 
 
 class CopyFileArgs(BaseModel):
@@ -171,6 +180,7 @@ class PlannedToolCall(BaseModel):
         RunJobAgentArgs
         | CreateJobFilesArgs
         | MatchCvArgs
+        | SearchWebArgs
         | CopyFileArgs
         | WriteDocumentArgs
         | ReadDocumentsArgs

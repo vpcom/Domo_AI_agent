@@ -1,16 +1,18 @@
 from pathlib import Path
+from datetime import datetime, timedelta
 import json
 import re
 
 from assistant.config import get_paths, is_debug_enabled
 from integrations.ollama_client import call_llm
+from tools.job.filesystem import save_json, save_text
 from tools.job.job_folder_resolution import find_best_matching_job_folder
 from tools.job.local_job_inputs import (
     CLEANED_DESCRIPTION_FILE,
     LEGACY_CLEANED_DESCRIPTION_FILE,
+    METADATA_FILE,
     RAW_DESCRIPTION_FILE,
-    ensure_local_job_inputs,
-    find_cleaned_job_description_file,
+    resolve_local_job_inputs,
 )
 from tools.job.pdf_utils import extract_pdf_text
 
@@ -236,7 +238,7 @@ def _resolve_path(path: Path) -> Path:
         if c.exists():
             return c.resolve()
 
-    # Fuzzy search: look for directories under data/jobs whose name contains the provided name
+    # Fuzzy search: look for directories under the configured jobs inputs root whose name contains the provided name
     try:
         name = path.name
         fuzzy_match = find_best_matching_job_folder(name, jobs_root)
@@ -251,7 +253,9 @@ def _resolve_path(path: Path) -> Path:
 
 def match_cv(job_folder: str, cvs_folder: str | None = None):
     job_path = Path(job_folder)
-    default_cvs_path = get_paths()["cvs_root"]
+    configured_paths = get_paths()
+    default_cvs_path = configured_paths["cvs_root"]
+    outputs_root = configured_paths["outputs_root"]
     cvs_path = Path(cvs_folder) if cvs_folder else default_cvs_path
 
     job_path = _resolve_path(job_path)
@@ -262,22 +266,23 @@ def match_cv(job_folder: str, cvs_folder: str | None = None):
 
     # Load job text first so we can extract a short job title for logging
 
-    ensure_local_job_inputs(job_path)
-
-    cleaned_file = find_cleaned_job_description_file(job_path)
-    raw_file = job_path / RAW_DESCRIPTION_FILE
-
-    if cleaned_file is not None:
-        job_text = cleaned_file.read_text(encoding="utf-8")
-    elif raw_file.exists():
-        job_text = raw_file.read_text(encoding="utf-8")
-    else:
+    resolved_inputs = resolve_local_job_inputs(job_path)
+    if resolved_inputs is None:
         yield (
             "Error: missing job description file. Expected "
             f"`{LEGACY_CLEANED_DESCRIPTION_FILE}`, `{CLEANED_DESCRIPTION_FILE}`, "
             f"`{RAW_DESCRIPTION_FILE}`, `job_description.txt`, `job description.txt`, "
             "`job_description.pdf`, or `job description.pdf`.\n"
         )
+        return
+
+    if resolved_inputs.mode == "cleaned":
+        job_text = resolved_inputs.cleaned_text or ""
+    else:
+        job_text = resolved_inputs.raw_text or ""
+
+    if not job_text:
+        yield f"Error: no readable job text found in {job_path}\n"
         return
 
     # Derive a short job title from the first non-empty line of the job text, or fallback to folder name
@@ -401,27 +406,40 @@ Return ONLY valid JSON. Do not add markdown, commentary, or code fences.
     best = max(results, key=lambda x: x["score"])
     yield f"Best CV selected: {best['file']} (score: {best['score']})\n"
 
+    output_time = datetime.now().replace(microsecond=0)
+    output_root = outputs_root / output_time.strftime("%Y%m%d_%H%M%S")
+    while output_root.exists():
+        output_time += timedelta(seconds=1)
+        output_root = outputs_root / output_time.strftime("%Y%m%d_%H%M%S")
+    output_folder = output_root / job_path.name
+    yield f"Output folder: {output_folder}\n"
+
+    if resolved_inputs.raw_text:
+        save_text(output_folder / RAW_DESCRIPTION_FILE, resolved_inputs.raw_text)
+    if resolved_inputs.mode == "cleaned" and resolved_inputs.cleaned_text:
+        save_text(output_folder / CLEANED_DESCRIPTION_FILE, resolved_inputs.cleaned_text)
+    if resolved_inputs.metadata:
+        save_json(output_folder / METADATA_FILE, resolved_inputs.metadata)
+
     best_cv_path = cvs_path / best["file"]
     try:
         best_cv_text = extract_pdf_text(best_cv_path)
     except Exception as exc:
         best_cv_text = f"[Error extracting PDF text: {exc}]"
-    (job_path / "best_cv.txt").write_text(best_cv_text, encoding="utf-8")
+    save_text(output_folder / "best_cv.txt", best_cv_text)
 
     analysis = {
         "best_cv": best["file"],
         "results": results,
     }
-    (job_path / "cv_match_analysis.json").write_text(
-        json.dumps(analysis, indent=2),
-        encoding="utf-8",
-    )
+    save_json(output_folder / "cv_match_analysis.json", analysis)
 
     summary_text = f"Best CV: {best['file']} (score: {best['score']})\n\n"
     for r in results:
         summary_text += f"{r['file']} -> score: {r['score']}\n"
         summary_text += f"{r['summary']}\n\n"
 
-    (job_path / "cv_match_summary.txt").write_text(summary_text, encoding="utf-8")
+    save_text(output_folder / "cv_match_summary.txt", summary_text)
 
     yield "CV matching completed.\n"
+    yield f"Output written to: {output_root}\n"

@@ -58,7 +58,9 @@ def get_paths() -> dict[str, Path]:
     configured_paths = _get_section("paths")
     return {
         "data_root": _resolve_path(configured_paths["data_root"]),
+        "inputs_root": _resolve_path(configured_paths["inputs_root"]),
         "jobs_root": _resolve_path(configured_paths["jobs_root"]),
+        "documents_root": _resolve_path(configured_paths["documents_root"]),
         "outputs_root": _resolve_path(configured_paths["outputs_root"]),
         "cvs_root": _resolve_path(configured_paths["cvs_root"]),
         "logs_root": _resolve_path(configured_paths["logs_root"]),
