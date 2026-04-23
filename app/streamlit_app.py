@@ -207,10 +207,6 @@ def _context_keys_for_display(active_workflow: str | None) -> dict[str, list[str
     }
 
 
-def _render_text_section(title: str, lines: list[str]) -> None:
-    st.markdown(_text_section_html(title, lines), unsafe_allow_html=True)
-
-
 def _text_section_html(title: str, lines: list[str]) -> str:
     if not lines:
         body = "<div class='domo-section-line'><span class='domo-muted'>No retained values yet.</span></div>"

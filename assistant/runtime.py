@@ -170,26 +170,6 @@ FOLLOW_UP_HINTS = (
     "folder",
     "cv",
 )
-YES_WORDS = {
-    "yes",
-    "yes please",
-    "ok",
-    "okay",
-    "confirm",
-    "confirmed",
-    "go ahead",
-    "do it",
-    "run it",
-    "proceed",
-    "sounds good",
-}
-NO_WORDS = {
-    "no",
-    "nope",
-    "cancel",
-    "stop",
-    "not yet",
-}
 
 PLANNER_SYSTEM_PROMPT = f"""
 You are Domo, a local assistant with access to these actions:
@@ -207,7 +187,7 @@ Behavior rules:
 - Use a single structured interpretation for each non-trivial user request.
 - The action space is constrained to the actions above. Never invent an action.
 - The execution layer validates your chosen action and arguments against strict schemas.
-- Always require explicit confirmation before any workflow execution.
+- Require explicit confirmation before any workflow execution if the instructions are not clear.
 - Do not execute anything yourself. You only interpret the request and propose an action.
 - Domo is not limited to job-related requests. General web research, project inspection, data inspection, and document tasks are valid uses of the assistant.
 - You are the component responsible for interpreting the latest user message. Do not assume any hidden heuristic router or local semantic classifier will pre-route, confirm, reject, or answer for you.
@@ -685,7 +665,8 @@ def execute_pending_tool_call(
                 raw_lines.append(str(result))
 
             plan_raw_lines.extend(raw_lines)
-            last_output_folder = _extract_last_output_folder(raw_lines) or last_output_folder
+            last_output_folder = _extract_last_output_folder(
+                raw_lines) or last_output_folder
 
             step_completion_event = _activity_event(
                 category="workflow",
@@ -889,32 +870,6 @@ def context_snapshot(context: ConversationContext) -> dict[str, dict[str, dict]]
     }
 
 
-def _plan_locally(state: ConversationState, user_input: str) -> PlannerDecision | None:
-    workflow, inference_methods = _infer_workflow_from_text(
-        user_input,
-        state,
-    )
-    if workflow is None:
-        return None
-
-    return PlannerDecision(
-        assistant_message="",
-        turn_intent="confirm",
-        action=workflow,
-        arguments={},
-        confidence=0.4,
-        reasoning=f"Fallback local routing matched {', '.join(inference_methods)}.",
-        confirmation_required=True,
-        activity_events=[
-            ActivityEventDraft(
-                category="decision",
-                summary=f"Fallback local router matched `{workflow}`.",
-                detail=f"method={', '.join(inference_methods)}",
-            )
-        ],
-    )
-
-
 def _plan_with_llm(
     state: ConversationState,
     user_input: str,
@@ -1009,9 +964,11 @@ def _plan_with_llm(
                 ],
             )
     else:
-        decision = _sanitize_planner_payload(decision.model_dump(mode="json")) or decision
+        decision = _sanitize_planner_payload(
+            decision.model_dump(mode="json")) or decision
 
-    decision.activity_events = [prompt_event, response_event] + list(decision.activity_events)
+    decision.activity_events = [prompt_event,
+                                response_event] + list(decision.activity_events)
 
     log_event(
         "planner_decision",
@@ -1056,7 +1013,8 @@ def _decision_to_turn_result(
     if decision.turn_intent == "respond" or not planned_steps:
         assistant_message = decision.assistant_message.strip()
         if not assistant_message or (
-            not planned_steps and _looks_like_confirmation_prompt(assistant_message)
+            not planned_steps and _looks_like_confirmation_prompt(
+                assistant_message)
         ):
             assistant_message = "I need a bit more detail before I can prepare a validated workflow plan."
         turn_intent = "respond" if decision.turn_intent == "respond" else "clarify"
@@ -1663,7 +1621,8 @@ def _prepare_planned_calls(
             ) from exc
 
         planned_calls.append(planned_call)
-        normalized_arguments = planned_call.parameters.model_dump(exclude_none=True)
+        normalized_arguments = planned_call.parameters.model_dump(
+            exclude_none=True)
         _apply_context_patch(
             planning_context,
             [
@@ -1744,12 +1703,14 @@ def _normalize_shared_output_root_references(
 
         candidate = Path(value).expanduser()
         if not candidate.is_absolute():
-            candidate = (Path(__file__).resolve().parents[1] / candidate).resolve()
+            candidate = (Path(__file__).resolve(
+            ).parents[1] / candidate).resolve()
         else:
             candidate = candidate.resolve()
 
         try:
-            relative_to_outputs = candidate.relative_to(CONFIGURED_PATHS["outputs_root"])
+            relative_to_outputs = candidate.relative_to(
+                CONFIGURED_PATHS["outputs_root"])
         except ValueError:
             continue
 
@@ -1889,13 +1850,15 @@ def _resolve_step_placeholder_value(
     if len(placeholder_matches) == 1 and placeholder_matches[0].span() == (0, len(value)):
         placeholder_key = placeholder_matches[0].group(1).strip()
         if placeholder_key not in plan_values:
-            raise ValueError(f"Unknown plan placeholder `{{{{{placeholder_key}}}}}`.")
+            raise ValueError(
+                f"Unknown plan placeholder `{{{{{placeholder_key}}}}}`.")
         return plan_values[placeholder_key]
 
     def replace(match: re.Match[str]) -> str:
         placeholder_key = match.group(1).strip()
         if placeholder_key not in plan_values:
-            raise ValueError(f"Unknown plan placeholder `{{{{{placeholder_key}}}}}`.")
+            raise ValueError(
+                f"Unknown plan placeholder `{{{{{placeholder_key}}}}}`.")
         return str(plan_values[placeholder_key])
 
     return re.sub(placeholder_pattern, replace, value)
@@ -2120,7 +2083,8 @@ def _merge_missing_fields(
         for field in planner_missing_fields
         if field in allowed_keys
     ]
-    missing_fields.extend(missing_required_arguments(tool_name, merged_arguments))
+    missing_fields.extend(missing_required_arguments(
+        tool_name, merged_arguments))
     return list(dict.fromkeys(missing_fields))
 
 
@@ -2158,7 +2122,8 @@ def _looks_like_pasted_document_text(user_input: str) -> bool:
     if len(stripped) < 160:
         return False
 
-    non_empty_lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    non_empty_lines = [line.strip()
+                       for line in stripped.splitlines() if line.strip()]
     word_count = len(re.findall(r"\S+", stripped))
     lowered = stripped.lower()
     document_markers = (
@@ -2283,54 +2248,6 @@ def _missing_run_job_agent_defaults(
             continue
         updates.append(value)
     return updates
-
-
-def _build_confirmation_patch(state: ConversationState) -> list[ContextValue]:
-    patch = [
-        _context_value(
-            "confirmation_state",
-            value="confirmed",
-            source="workflow",
-            status="confirmed",
-        ),
-        _context_value(
-            "run_status",
-            value="running",
-            source="workflow",
-            status="confirmed",
-        ),
-        _context_value(
-            "open_question",
-            value=None,
-            source="workflow",
-            status="missing",
-        ),
-    ]
-    selected_workflow = _get_context_value(state.context, "selected_workflow")
-    if selected_workflow in WORKFLOW_PARAMETER_KEYS:
-        for key in WORKFLOW_PARAMETER_KEYS[selected_workflow]:
-            current = _get_context_entry(state.context, key)
-            if current is None or current.value in (None, ""):
-                continue
-            patch.append(
-                _context_value(
-                    key,
-                    value=current.value,
-                    source=current.source,
-                    status="confirmed",
-                )
-            )
-    request_summary = _get_context_entry(state.context, "request_summary")
-    if request_summary is not None and request_summary.value:
-        patch.append(
-            _context_value(
-                "request_summary",
-                value=request_summary.value,
-                source=request_summary.source,
-                status="confirmed",
-            )
-        )
-    return patch
 
 
 def _idle_state_patch() -> list[ContextValue]:
@@ -2569,11 +2486,6 @@ def _infer_workflow_from_text(
     return None, ["no_local_match"]
 
 
-def _looks_like_workflow_request(user_input: str, state: ConversationState) -> bool:
-    workflow, _ = _infer_workflow_from_text(user_input, state)
-    return workflow is not None
-
-
 def _looks_like_create_job_files_request(lowered: str) -> bool:
     if any(pattern in lowered for pattern in CREATE_JOB_PATTERNS):
         return True
@@ -2590,19 +2502,6 @@ def _looks_like_create_job_files_request(lowered: str) -> bool:
     mentions_company_hint = "company name" in lowered or "job offer" in lowered
 
     return mentions_folder and (mentions_documents or mentions_company_hint)
-
-
-def _missing_required_fields(
-    workflow: str,
-    context: ConversationContext,
-) -> list[str]:
-    if workflow == "create_job_files":
-        return ["job_folder"] if not _get_context_value(context, "job_folder") else []
-    if workflow == "match_cv":
-        return ["job_folder"] if not _get_context_value(context, "job_folder") else []
-    if workflow == "search_web":
-        return ["query"] if not _get_context_value(context, "query") else []
-    return []
 
 
 def _build_open_question(workflow: str, missing_fields: list[str]) -> str:
@@ -2903,7 +2802,8 @@ def _extract_timestamp_output_root(path_value: str) -> str | None:
         candidate = candidate.resolve()
 
     try:
-        relative_to_outputs = candidate.relative_to(CONFIGURED_PATHS["outputs_root"])
+        relative_to_outputs = candidate.relative_to(
+            CONFIGURED_PATHS["outputs_root"])
     except ValueError:
         return None
 
@@ -2915,120 +2815,6 @@ def _extract_timestamp_output_root(path_value: str) -> str | None:
         return get_display_path(CONFIGURED_PATHS["outputs_root"] / first_part)
 
     return None
-
-
-def _answer_from_local_knowledge(user_input: str) -> str | None:
-    lowered = user_input.lower()
-
-    if (
-        "what can you do" in lowered
-        or "what do you do" in lowered
-        or "your capabilities" in lowered
-    ):
-        return (
-            f"I can search the web, inspect project files and the data folder, read or summarize documents, "
-            f"evaluate documents against criteria, copy files, and write new documents under {OUTPUTS_ROOT_DISPLAY}. "
-            f"I can also search jobs, generate job files from existing job folders, and match CVs against a job folder."
-        )
-
-    if (
-        "application portal" in lowered
-        or "apply through" in lowered
-        or "monitor" in lowered
-    ):
-        return (
-            "Not yet. The current job workflow can search ATS job boards, rank jobs using the "
-            "configured preferences, and prepare application materials. It does not submit "
-            "applications through portals and it does not monitor application status yet."
-        )
-
-    if (
-        "parameter" in lowered
-        or "configuration" in lowered
-        or "config.yaml" in lowered
-        or "preferences" in lowered
-    ):
-        return (
-            f"The main configuration lives in {CONFIG_DISPLAY_PATH}. "
-            "You can edit debug.enabled, paths, ollama settings, and the job_search section there. "
-            "The job_search section includes role, location, ignore_location, remote_only, sources, companies, max_jobs, "
-            "max_results_per_source, and max_company_attempts_per_source. "
-            "The prompt_overrides section shows which workflows allow per-run prompt overrides. "
-            "Currently run_job_agent exposes the job_search override fields, while create_job_files, match_cv, and search_web do not take prompt overrides."
-        )
-
-    if "job_description_raw" in lowered or (
-        "where should i put" in lowered and "job agent" in lowered
-    ):
-        return (
-            f"Put the job description inside its own job folder, typically under {JOBS_ROOT_DISPLAY}. "
-            f"You can use job_description_raw.txt directly, cleaned_job_description.txt, job_description.txt, job description.txt, job_description.pdf, or job description.pdf. "
-            f"For example: {JOBS_ROOT_DISPLAY}/20260322 - Company - Role/job_description_raw.txt or "
-            f"{JOBS_ROOT_DISPLAY}/20260322 - Company - Role/job description.pdf. "
-            f"If you want Domo to stage a brand-new pasted job ad itself, it must write that staged folder under {OUTPUTS_ROOT_DISPLAY}. "
-            "If you provide only the company name when running create_job_files or CV matching, it will try to match the closest dated folder with that company name."
-        )
-
-    if "where should i put" in lowered and "cv" in lowered:
-        return (
-            f"Put PDF CVs under {CVS_ROOT_DISPLAY}. The CV matching tool reads from that folder and writes "
-            f"best_cv.txt, cv_match_analysis.json, and cv_match_summary.txt into a new folder under {OUTPUTS_ROOT_DISPLAY}."
-        )
-
-    if ("what can you do" in lowered or "job workflow" in lowered) and "job" in lowered:
-        return (
-            "The job workflow can search ATS job boards using the preferences in "
-            f"{CONFIG_DISPLAY_PATH}, rank matching jobs, stage raw job descriptions and metadata "
-            f"under {OUTPUTS_ROOT_DISPLAY}, then generate application artifacts there including "
-            "a cleaned job description, PDF, and info.txt with application notes and CV guidance. "
-            "The dedicated create_job_files workflow can also start from a folder that already contains "
-            "job_description_raw.txt, cleaned_job_description.txt, job_description.txt, job description.txt, job_description.pdf, or job description.pdf. "
-            "It can resolve company-name-only folder hints to the closest dated folder under the jobs directory. "
-            "It does not auto-apply through application portals. "
-            f"It can also compare PDF CVs from {CVS_ROOT_DISPLAY} against a specific job folder and select "
-            f"the best-matching CV into {OUTPUTS_ROOT_DISPLAY}. Separately, it can read project files, inspect the data folder, "
-            f"search the web, and create new documents only inside {OUTPUTS_ROOT_DISPLAY}."
-        )
-
-    return None
-
-
-def _extract_general_web_search_query(user_input: str) -> str | None:
-    match = re.match(
-        r"^\s*(?:hey\s+domo[!,.:\s]*)?"
-        r"(?:do\s+you\s+know(?:\s+about)?|who\s+is|what\s+is|tell\s+me\s+about|look\s+up|find\s+(?:information|info)\s+(?:about|on))"
-        r"\s+(.+?)\s*[?.!]*\s*$",
-        user_input,
-        re.IGNORECASE,
-    )
-    if match is None:
-        return None
-
-    query = match.group(1).strip().strip("\"'“”")
-    return query or None
-
-
-def _route_general_web_search(user_input: str) -> PlannerDecision | None:
-    query = _extract_general_web_search_query(user_input)
-    if query is None:
-        return None
-
-    return PlannerDecision(
-        assistant_message=f"I can search the web for {query} once you confirm.",
-        turn_intent="confirm",
-        action="search_web",
-        arguments={"query": query},
-        confidence=0.96,
-        reasoning="The user asked for factual information about a person or topic, which maps to web search.",
-        confirmation_required=True,
-        activity_events=[
-            ActivityEventDraft(
-                category="decision",
-                summary="Direct router mapped a factual lookup to `search_web`.",
-                detail=f"query={query}",
-            )
-        ],
-    )
 
 
 def _sanitize_planner_payload(payload: dict) -> PlannerDecision | None:
@@ -3053,7 +2839,8 @@ def _sanitize_planner_payload(payload: dict) -> PlannerDecision | None:
         )
 
     assistant_message = str(payload.get("assistant_message", "")).strip()
-    raw_turn_intent = str(payload.get("turn_intent", "clarify")).strip().lower()
+    raw_turn_intent = str(payload.get(
+        "turn_intent", "clarify")).strip().lower()
     turn_intent = (
         raw_turn_intent
         if raw_turn_intent in {"respond", "clarify", "confirm", "execute"}
@@ -3064,7 +2851,8 @@ def _sanitize_planner_payload(payload: dict) -> PlannerDecision | None:
     activity_events.extend(step_events)
 
     raw_action = payload.get("action", payload.get("tool_name"))
-    action = raw_action if isinstance(raw_action, str) and raw_action in TOOLS else None
+    action = raw_action if isinstance(
+        raw_action, str) and raw_action in TOOLS else None
     raw_action_text = str(raw_action).strip() if raw_action is not None else ""
     nested_payload = None
     if action is None and not steps and assistant_message:
@@ -3139,7 +2927,8 @@ def _sanitize_planner_payload(payload: dict) -> PlannerDecision | None:
         if turn_intent in {"confirm", "execute"}:
             turn_intent = "clarify"
         if raw_action_text:
-            suggestion_text = ", ".join(f"`{name}`" for name in closest_actions)
+            suggestion_text = ", ".join(
+                f"`{name}`" for name in closest_actions)
             if not assistant_message:
                 assistant_message = _unsupported_action_message(
                     raw_action_text,
@@ -3232,9 +3021,11 @@ def _sanitize_planner_steps(
         if not isinstance(item, dict):
             continue
         raw_action = item.get("action", item.get("tool_name"))
-        action = raw_action if isinstance(raw_action, str) and raw_action in TOOLS else None
+        action = raw_action if isinstance(
+            raw_action, str) and raw_action in TOOLS else None
         if action is None:
-            raw_action_text = str(raw_action).strip() if raw_action is not None else "(missing)"
+            raw_action_text = str(raw_action).strip(
+            ) if raw_action is not None else "(missing)"
             closest_actions = _closest_supported_actions(
                 raw_action_text,
                 json.dumps(item, ensure_ascii=True),
@@ -3312,7 +3103,8 @@ def _closest_supported_actions(
                 score += 4
             alias_tokens = set(re.findall(r"[a-z0-9_]+", alias.lower()))
             score += len(source_tokens & alias_tokens)
-        description_tokens = set(re.findall(r"[a-z0-9_]+", spec.description.lower()))
+        description_tokens = set(re.findall(
+            r"[a-z0-9_]+", spec.description.lower()))
         score += len(source_tokens & description_tokens)
         if tool_name in source_tokens:
             score += 5
@@ -3406,37 +3198,6 @@ def _strip_code_fences(value: str) -> str:
     if cleaned.endswith("```"):
         cleaned = cleaned[:-3].strip()
     return cleaned
-
-
-def _is_explicit_confirmation(user_input: str) -> bool:
-    lowered = re.sub(r"\s+", " ", user_input.strip().lower())
-    if lowered in YES_WORDS:
-        return True
-    return bool(
-        re.match(
-            r"^(?:yes|ok|okay|(?:i\s+)?confirm(?:ed)?|go ahead|do it|run it|proceed|sounds good)\b",
-            lowered,
-        )
-    )
-
-
-def _is_explicit_rejection(user_input: str) -> bool:
-    lowered = re.sub(r"\s+", " ", user_input.strip().lower())
-    if lowered in NO_WORDS:
-        return True
-    return bool(re.match(r"^(no|nope|cancel|stop)\b", lowered))
-
-
-def _strip_rejection_prefix(user_input: str) -> str | None:
-    match = re.match(
-        r"^\s*(?:no|nope|cancel|stop)\b[\s,:-]*(.+?)\s*$",
-        user_input,
-        re.IGNORECASE,
-    )
-    if match is None:
-        return None
-    revised_input = match.group(1).strip()
-    return revised_input or None
 
 
 def _extract_company_hint(user_input: str) -> str | None:
