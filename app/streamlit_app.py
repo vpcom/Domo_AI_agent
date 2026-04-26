@@ -1,3 +1,9 @@
+"""Streamlit entry point for the Domo assistant application.
+
+This module defines the UI layout, the persistent conversation state,
+and the event handling logic for the assistant chat interface.
+"""
+
 from base64 import b64encode
 from html import escape
 from pathlib import Path
@@ -176,13 +182,21 @@ components.html(
     height=0,
 )
 
+################################################################################
+# Runtime state initialization, application starts here
+
+# Conversation state is stored in Streamlit's session state to persist across reruns.
 if "conversation_state" not in st.session_state:
     st.session_state.conversation_state = create_conversation_state()
 
 state: ConversationState = st.session_state.conversation_state
 
+################################################################################
+# Helper functions for main application layout and event handling
+
 
 def _format_value(value) -> str:
+    """Render a value for display in the context panel."""
     if value is None or value == "":
         return "<span class='domo-muted'>Not set</span>"
     if isinstance(value, bool):
@@ -191,6 +205,7 @@ def _format_value(value) -> str:
 
 
 def _context_keys_for_display(active_workflow: str | None) -> dict[str, list[str]]:
+    """Return the grouped context keys to show based on active workflow."""
     request_keys = [
         "request_summary",
         "selected_workflow",
@@ -208,6 +223,7 @@ def _context_keys_for_display(active_workflow: str | None) -> dict[str, list[str
 
 
 def _text_section_html(title: str, lines: list[str]) -> str:
+    """Render a titled HTML section for context values."""
     if not lines:
         body = "<div class='domo-section-line'><span class='domo-muted'>No retained values yet.</span></div>"
     else:
@@ -224,6 +240,7 @@ def _text_section_html(title: str, lines: list[str]) -> str:
 
 
 def _context_line(value: ContextValue) -> str | None:
+    """Render a single context value line, truncating long strings."""
     if value.value in (None, ""):
         return None
     rendered_value = value.value
@@ -233,6 +250,7 @@ def _context_line(value: ContextValue) -> str | None:
 
 
 def _render_context_panel(current_state: ConversationState) -> None:
+    """Render the sidebar context panel with request, parameter, and execution values."""
     active_workflow = current_state.context.request.get("selected_workflow")
     workflow_name = None if active_workflow is None else active_workflow.value
     keys_by_section = _context_keys_for_display(workflow_name)
@@ -267,6 +285,7 @@ def _render_context_panel(current_state: ConversationState) -> None:
 
 
 def _render_chat_panel(current_state: ConversationState) -> None:
+    """Render the main chat history panel."""
     st.subheader("Chat")
     if not current_state.messages:
         st.info("Start with a request. Domo will clarify the task, retain parameters, and ask for confirmation before running anything.")
@@ -291,11 +310,13 @@ def _render_chat_panel(current_state: ConversationState) -> None:
 
 
 def _should_collapse_user_message(content: str) -> bool:
+    """Decide whether a long user message should be collapsed in the UI."""
     non_empty_lines = [line for line in content.splitlines() if line.strip()]
     return len(non_empty_lines) > 7 or len(content) > 500
 
 
 def _activity_log_line(event: ActivityEvent) -> str:
+    """Format an activity event into a single display line."""
     timestamp = event.timestamp.astimezone().strftime("%H:%M:%S")
     category = event.category.capitalize()
     summary = escape(event.summary.rstrip("."))
@@ -306,6 +327,7 @@ def _activity_log_line(event: ActivityEvent) -> str:
 
 
 def _render_activity_panel(current_state: ConversationState) -> None:
+    """Render the activity log section for workflow and planner events."""
     st.subheader("Activity Logs")
     if not current_state.activity_events:
         st.caption("No activity recorded yet.")
@@ -323,12 +345,16 @@ def _render_activity_panel(current_state: ConversationState) -> None:
 
 
 def _activity_expander_label(event: ActivityEvent, index: int) -> str:
+    """Return a descriptive label for raw activity event details."""
     summary = event.summary.rstrip(".")
     if summary == "Planner prompt prepared":
         return "Prompt"
     if summary == "Planner raw response received":
         return "Response"
     return f"Details {index}: {summary or 'Event'}"
+
+################################################################################
+# Main application layout and event handling
 
 
 header_left, header_right = st.columns([5, 1])

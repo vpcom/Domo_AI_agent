@@ -1,3 +1,10 @@
+"""Runtime orchestration for the Domo assistant.
+
+This module implements chat turn planning, workflow context management,
+planner orchestration, execution of tool calls, and conversation state
+auditing for the Domo assistant.
+"""
+
 from datetime import datetime
 import json
 from pathlib import Path
@@ -36,6 +43,7 @@ from assistant.schemas import (
 )
 from integrations.ollama_client import call_llm
 
+# Runtime constants and configuration
 CONFIG_DISPLAY_PATH = get_display_path(get_config_path())
 CONFIGURED_PATHS = get_paths()
 INPUTS_ROOT_DISPLAY = get_display_path(CONFIGURED_PATHS["inputs_root"])
@@ -171,6 +179,7 @@ FOLLOW_UP_HINTS = (
     "cv",
 )
 
+# Planner prompt and behavior rules
 PLANNER_SYSTEM_PROMPT = f"""
 You are Domo, a local assistant with access to these actions:
 - run_job_agent(folder_path: optional string, role: optional string, location: optional string, ignore_location: optional boolean, remote_only: optional boolean)
@@ -424,11 +433,14 @@ Path examples:
 """
 
 
+# Conversation state management
 def new_turn_id() -> str:
+    """Return a new unique identifier for a chat turn."""
     return str(uuid.uuid4())
 
 
 def create_conversation_state() -> ConversationState:
+    """Create and return a fresh conversation state with default workflow context."""
     context = ConversationContext()
     for value in (
         _context_value(
@@ -483,6 +495,7 @@ def create_conversation_state() -> ConversationState:
 
 
 def _pending_plan(state: ConversationState) -> list[PlannedToolCall]:
+    """Normalize pending tool calls into a list."""
     if state.pending_tool_calls:
         return list(state.pending_tool_calls)
     if state.pending_tool_call is not None:
@@ -496,6 +509,7 @@ def plan_chat_turn(
     *,
     turn_id: str | None = None,
 ) -> TurnResult:
+    """Interpret user input and return a planner TurnResult."""
     turn_id = turn_id or new_turn_id()
     log_event(
         "request_received",
@@ -541,6 +555,7 @@ def apply_turn_result(
     *,
     turn_id: str,
 ) -> None:
+    """Apply the TurnResult to the conversation state and record activity."""
     state.messages.append(
         _chat_message(role="user", content=user_input, turn_id=turn_id)
     )
@@ -587,6 +602,7 @@ def execute_pending_tool_call(
     *,
     turn_id: str,
 ) -> ExecutionResult:
+    """Run the currently pending tool call plan and return its result."""
     pending_plan = _pending_plan(state)
     if not pending_plan:
         error_event = _activity_event(
@@ -803,6 +819,7 @@ def apply_execution_result(
     *,
     turn_id: str,
 ) -> None:
+    """Apply execution output to the conversation state and append activity events."""
     _apply_context_patch(state.context, execution_result.context_patch)
     for event in execution_result.activity_events:
         state.activity_events.append(event)
@@ -817,6 +834,7 @@ def apply_execution_result(
 
 
 def reset_conversation_state(state: ConversationState) -> None:
+    """Reset the mutable conversation state to a fresh default."""
     fresh = create_conversation_state()
     state.session_id = fresh.session_id
     state.messages = fresh.messages
@@ -830,6 +848,7 @@ def reset_conversation_state(state: ConversationState) -> None:
 
 
 def execute_tool_call(tool_call: PlannedToolCall) -> object:
+    """Execute a single planned tool call through the tool registry."""
     request_id = tool_call.request_id
     tool_name = tool_call.tool_name
     policy = TOOL_POLICIES[tool_name]
@@ -854,6 +873,7 @@ def execute_tool_call(tool_call: PlannedToolCall) -> object:
 
 
 def context_snapshot(context: ConversationContext) -> dict[str, dict[str, dict]]:
+    """Return a JSON-serializable snapshot of the current conversation context."""
     return {
         "request": {
             key: value.model_dump(mode="json")
@@ -875,6 +895,7 @@ def _plan_with_llm(
     user_input: str,
     turn_id: str,
 ) -> PlannerDecision:
+    """Build a planner prompt, call the LLM, and return its decision."""
     prompt = _build_prompt(state, user_input)
     prompt_event = ActivityEventDraft(
         category="decision",
@@ -1006,6 +1027,7 @@ def _decision_to_turn_result(
     confirmation_cleared: bool,
     base_events: list[ActivityEvent],
 ) -> TurnResult:
+    """Convert a planner decision into the runtime TurnResult structure."""
     patch: list[ContextValue] = list(_idle_state_patch())
     events = list(base_events) + _planner_activity_events(decision, turn_id)
     planned_steps = _normalized_planner_steps(decision)
@@ -1459,6 +1481,7 @@ def _decision_to_turn_result(
 
 
 def _confirmed_context_patch(patch: list[ContextValue]) -> list[ContextValue]:
+    """Convert pending context values to confirmed status."""
     confirmed: list[ContextValue] = []
     for value in patch:
         status = "confirmed" if value.status == "pending" else value.status
@@ -1477,6 +1500,7 @@ def _plans_match(
     left: list[PlannedToolCall],
     right: list[PlannedToolCall],
 ) -> bool:
+    """Return whether two planned tool call sequences match exactly."""
     if len(left) != len(right):
         return False
 
@@ -1501,6 +1525,7 @@ def _build_planned_tool_call_from_arguments(
     output_root: Path | None = None,
     skip_semantic_validation: bool = False,
 ) -> PlannedToolCall:
+    """Build a PlannedToolCall from merged arguments and planner metadata."""
     args = build_tool_args(tool_name, merged_arguments)
     return plan_tool_call(
         tool_name,
@@ -1514,6 +1539,7 @@ def _build_planned_tool_call_from_arguments(
 
 
 def _normalized_planner_steps(decision: PlannerDecision) -> list[PlannerStep]:
+    """Normalize planner output into a list of PlannerStep objects."""
     if decision.steps:
         return list(decision.steps)
     if decision.action is None:
@@ -1535,6 +1561,7 @@ def _prepare_planned_calls(
     str | None,
     list[ActivityEventDraft],
 ]:
+    """Prepare concrete tool calls from planner steps, runtime context, and defaults."""
     planning_context = _clone_context(state.context)
     pending_plan = _pending_plan(state)
     plan_values = _initial_plan_values(state.context)
@@ -1658,6 +1685,7 @@ def _prepare_planned_calls(
 def _initial_plan_values(
     context: ConversationContext,
 ) -> dict[str, str | bool | int | float | None]:
+    """Compute the initial plan values derived from the current context."""
     plan_values: dict[str, str | bool | int | float | None] = {}
     for section in (context.request, context.parameters, context.execution):
         for key, entry in section.items():
@@ -1688,6 +1716,7 @@ def _normalize_shared_output_root_references(
     *,
     output_root: Path,
 ) -> dict[str, str | bool | int | float | None]:
+    """Normalize shared output root references in planned step arguments."""
     normalized = dict(arguments)
     path_keys = {
         "source_path",
@@ -1728,6 +1757,7 @@ def _normalize_shared_output_root_references(
 def _planned_document_inputs(
     plan_values: dict[str, str | bool | int | float | None],
 ) -> set[str]:
+    """Identify document inputs required by the planned workflow."""
     planned_inputs: set[str] = set()
     for key, value in plan_values.items():
         if not isinstance(value, str) or not value.strip():
@@ -1743,6 +1773,7 @@ def _planned_document_inputs(
 def _infer_working_folder_from_planned_calls(
     planned_calls: list[PlannedToolCall],
 ) -> str | None:
+    """Infer the staged working folder from planned tool call arguments."""
     for tool_call in planned_calls:
         parameters = tool_call.parameters.model_dump(exclude_none=True)
 
@@ -1767,6 +1798,7 @@ def _infer_working_folder_from_planned_calls(
 def _get_staged_working_folder(
     plan_values: dict[str, str | bool | int | float | None],
 ) -> str | None:
+    """Return the current staged working folder from runtime plan values."""
     for key in ("working_folder", "last_job_folder", "job_folder"):
         value = plan_values.get(key)
         if (
@@ -1796,6 +1828,7 @@ def _autofill_runtime_step_arguments(
     dict[str, str | bool | int | float | None],
     list[ActivityEventDraft],
 ]:
+    """Autofill missing runtime step arguments using plan state."""
     autofilled_arguments = dict(merged_arguments)
     activity_drafts: list[ActivityEventDraft] = []
     working_folder = _get_staged_working_folder(plan_values)
@@ -1826,6 +1859,7 @@ def _resolve_step_argument_placeholders(
     arguments: dict[str, str | bool | int | float | None],
     plan_values: dict[str, str | bool | int | float | None],
 ) -> dict[str, str | bool | int | float | None]:
+    """Resolve placeholder values in step arguments against plan state."""
     resolved: dict[str, str | bool | int | float | None] = {}
     for key, value in arguments.items():
         resolved[key] = _resolve_step_placeholder_value(value, plan_values)
@@ -1836,6 +1870,7 @@ def _resolve_step_placeholder_value(
     value: str | bool | int | float | None,
     plan_values: dict[str, str | bool | int | float | None],
 ):
+    """Resolve a single placeholder value from runtime plan state."""
     if not isinstance(value, str):
         return value
 
@@ -1855,6 +1890,7 @@ def _resolve_step_placeholder_value(
         return plan_values[placeholder_key]
 
     def replace(match: re.Match[str]) -> str:
+        """Return replace."""
         placeholder_key = match.group(1).strip()
         if placeholder_key not in plan_values:
             raise ValueError(
@@ -1869,6 +1905,7 @@ def _update_plan_values(
     tool_call: PlannedToolCall,
     step_index: int,
 ) -> None:
+    """Update plan values as workflow execution progresses."""
     parameters = tool_call.parameters.model_dump(exclude_none=True)
     plan_values[f"step{step_index}.action"] = tool_call.tool_name
     plan_values[f"step{step_index}.tool_name"] = tool_call.tool_name
@@ -1924,6 +1961,7 @@ def _update_plan_values(
 
 
 def _is_path_under_root(path_value: str, root_path: Path) -> bool:
+    """Return whether a candidate path is under a given root path."""
     try:
         candidate = Path(path_value).resolve()
     except OSError:
@@ -1932,6 +1970,7 @@ def _is_path_under_root(path_value: str, root_path: Path) -> bool:
 
 
 def _is_staged_job_description_path(path_value: str) -> bool:
+    """Return whether a path points to a staged job description file."""
     return (
         _is_path_under_root(path_value, CONFIGURED_PATHS["outputs_root"])
         and Path(path_value).name.lower() in JOB_STAGING_FILE_NAMES
@@ -1942,6 +1981,7 @@ def _planner_activity_events(
     decision: PlannerDecision,
     turn_id: str,
 ) -> list[ActivityEvent]:
+    """Convert planner activity drafts into runtime activity events."""
     events = [
         _draft_to_event(draft, turn_id=turn_id)
         for draft in decision.activity_events
@@ -1995,6 +2035,7 @@ def _merge_planner_arguments(
     pending_arguments: dict[str, str | bool | int | float | None],
     new_arguments: dict[str, str | bool | int | float | None],
 ) -> dict[str, str | bool | int | float | None]:
+    """Merge planner arguments from multiple sources into a single dictionary."""
     merged: dict[str, str | bool | int | float | None] = {}
 
     for key, value in pending_arguments.items():
@@ -2031,6 +2072,7 @@ def _build_argument_context_patch(
     new_arguments: dict[str, str | bool | int | float | None],
     merged_arguments: dict[str, str | bool | int | float | None],
 ) -> list[ContextValue]:
+    """Build a context patch from planner arguments and runtime state."""
     patch: list[ContextValue] = []
 
     for key in TOOLS[tool_name].context_keys:
@@ -2077,6 +2119,7 @@ def _merge_missing_fields(
     planner_missing_fields: list[str],
     merged_arguments: dict[str, str | bool | int | float | None],
 ) -> list[str]:
+    """Merge missing field definitions from planner output and user input."""
     allowed_keys = set(TOOLS[tool_name].argument_keys)
     missing_fields = [
         field
@@ -2097,6 +2140,7 @@ def _recover_step_arguments_from_user_input(
     dict[str, str | bool | int | float | None],
     list[ActivityEventDraft],
 ]:
+    """Recover missing step arguments from the latest user message."""
     recovered_arguments = dict(arguments)
     activity_drafts: list[ActivityEventDraft] = []
 
@@ -2118,6 +2162,7 @@ def _recover_step_arguments_from_user_input(
 
 
 def _looks_like_pasted_document_text(user_input: str) -> bool:
+    """Determine whether the input appears to be pasted document content."""
     stripped = user_input.strip()
     if len(stripped) < 160:
         return False
@@ -2147,6 +2192,7 @@ def _looks_like_pasted_document_text(user_input: str) -> bool:
 
 
 def _looks_like_confirmation_prompt(text: str) -> bool:
+    """Determine whether the input appears to be a confirmation prompt."""
     lowered = text.strip().lower()
     if not lowered:
         return False
@@ -2167,6 +2213,7 @@ def _build_missing_step_message(
     missing_fields: list[str],
     arguments: dict[str, str | bool | int | float | None],
 ) -> str:
+    """Build a natural-language message for missing step inputs."""
     if tool_name == "write_document" and "content" in missing_fields:
         destination_path = str(arguments.get("destination_path") or "").strip()
         if destination_path:
@@ -2177,6 +2224,7 @@ def _build_missing_step_message(
 
 
 def _build_validation_failure_message(error_text: str) -> str:
+    """Build a validation failure message from planner output."""
     return (
         "I could not validate that plan safely. "
         f"{error_text} "
@@ -2185,6 +2233,7 @@ def _build_validation_failure_message(error_text: str) -> str:
 
 
 def _build_low_confidence_message(tool_name: str) -> str:
+    """Build a low-confidence warning message for runtime planning."""
     if tool_name == "run_job_agent":
         return "I’m not confident enough to prepare the job search yet. Please restate the role or location."
     if tool_name == "create_job_files":
@@ -2207,6 +2256,7 @@ def _build_low_confidence_message(tool_name: str) -> str:
 
 
 def _default_run_job_agent_patch() -> list[ContextValue]:
+    """Return the default runtime patch for a run_job_agent workflow."""
     return [
         _context_value(
             "role",
@@ -2239,6 +2289,7 @@ def _missing_run_job_agent_defaults(
     context: ConversationContext,
     current_patch: list[ContextValue],
 ) -> list[ContextValue]:
+    """Return default values for missing run_job_agent parameters."""
     updates: list[ContextValue] = []
     patched_keys = {value.key for value in current_patch}
     for value in _default_run_job_agent_patch():
@@ -2251,6 +2302,7 @@ def _missing_run_job_agent_defaults(
 
 
 def _idle_state_patch() -> list[ContextValue]:
+    """Return the default idle context patch."""
     return [
         _context_value(
             "confirmation_state",
@@ -2268,6 +2320,7 @@ def _idle_state_patch() -> list[ContextValue]:
 
 
 def _build_prompt(state: ConversationState, user_input: str) -> str:
+    """Build the planner prompt from current state and user input."""
     recent_messages = [
         {"role": message.role, "content": message.content}
         for message in state.messages[-RECENT_CHAT_LIMIT:]
@@ -2293,6 +2346,7 @@ def _build_prompt(state: ConversationState, user_input: str) -> str:
 
 
 def _extract_run_job_agent_updates(user_input: str) -> list[ContextValue]:
+    """Extract run_job_agent related updates from planner output."""
     updates: list[ContextValue] = []
     role = None
     role_patterns = (
@@ -2396,6 +2450,7 @@ def _extract_run_job_agent_updates(user_input: str) -> list[ContextValue]:
 
 
 def _extract_create_job_files_updates(user_input: str) -> list[ContextValue]:
+    """Extract create_job_files related updates from planner output."""
     job_folder = _extract_company_hint(user_input)
     if not job_folder:
         job_folder = _extract_folder_value(
@@ -2416,6 +2471,7 @@ def _extract_create_job_files_updates(user_input: str) -> list[ContextValue]:
 
 
 def _extract_match_cv_updates(user_input: str) -> list[ContextValue]:
+    """Extract match_cv related updates from planner output."""
     updates = _extract_create_job_files_updates(user_input)
     cvs_folder = _extract_folder_value(
         user_input,
@@ -2434,6 +2490,7 @@ def _extract_match_cv_updates(user_input: str) -> list[ContextValue]:
 
 
 def _extract_folder_value(user_input: str, *, labels: tuple[str, ...]) -> str | None:
+    """Extract a folder path value from planner output."""
     quoted = re.search(r"['\"]([^'\"]+)['\"]", user_input)
     if quoted:
         return quoted.group(1).strip()
@@ -2487,6 +2544,7 @@ def _infer_workflow_from_text(
 
 
 def _looks_like_create_job_files_request(lowered: str) -> bool:
+    """Determine whether the current turn resembles a create_job_files request."""
     if any(pattern in lowered for pattern in CREATE_JOB_PATTERNS):
         return True
 
@@ -2505,6 +2563,7 @@ def _looks_like_create_job_files_request(lowered: str) -> bool:
 
 
 def _build_open_question(workflow: str, missing_fields: list[str]) -> str:
+    """Build an open question message for missing parameters."""
     if workflow in {"create_job_files", "match_cv"} and "job_folder" in missing_fields:
         return "Which job folder should I use?"
     if workflow == "match_cv" and "cvs_folder" in missing_fields:
@@ -2532,6 +2591,7 @@ def _build_request_summary(
     workflow: str,
     context: ConversationContext,
 ) -> str | None:
+    """Build a concise summary of the current user request."""
     if workflow == "run_job_agent":
         parts = ["Online job search"]
         role = _get_context_value(context, "role")
@@ -2624,6 +2684,7 @@ def _build_request_summary(
 
 
 def _build_plan_request_summary(plan: list[PlannedToolCall]) -> str | None:
+    """Build a summary of the planned workflow for confirmation."""
     if not plan:
         return None
     if len(plan) == 1:
@@ -2654,6 +2715,7 @@ def _build_plan_request_summary(plan: list[PlannedToolCall]) -> str | None:
 
 
 def _build_confirmation_message(plan: list[PlannedToolCall]) -> str:
+    """Build the confirmation message shown to the user."""
     if len(plan) == 1:
         tool_call = plan[0]
         return (
@@ -2674,6 +2736,7 @@ def _build_execution_message(
     output_folder: str | None,
     raw_lines: list[str],
 ) -> str:
+    """Build the execution result message for the assistant."""
     if len(plan) > 1:
         action_text = f"{len(plan)}-step plan"
     else:
@@ -2694,6 +2757,7 @@ def _extract_chat_execution_output(
     tool_name: str,
     raw_lines: list[str],
 ) -> str | None:
+    """Extract chat-friendly execution output from planner raw response."""
     chat_tools = {
         "search_web",
         "read_documents",
@@ -2736,6 +2800,7 @@ def _format_plan_summary(
     *,
     numbered: bool = False,
 ) -> str:
+    """Format a plan summary for logs and activity events."""
     lines = []
     for index, tool_call in enumerate(plan, start=1):
         prefix = f"{index}. " if numbered else "- "
@@ -2746,6 +2811,7 @@ def _format_plan_summary(
 
 
 def _format_tool_call_summary(tool_call: PlannedToolCall) -> str:
+    """Format a tool call summary for activity logging."""
     params = tool_call.parameters.model_dump(exclude_none=True)
     if not params:
         return "(no explicit parameters)"
@@ -2756,6 +2822,7 @@ def _format_tool_call_summary(tool_call: PlannedToolCall) -> str:
 
 
 def _format_parameter_value(value) -> str:
+    """Format a parameter value for display or logging."""
     text = str(value)
     if len(text) > 120:
         return text[:117] + "..."
@@ -2763,6 +2830,7 @@ def _format_parameter_value(value) -> str:
 
 
 def _summarize_raw_output(raw_lines: list[str]) -> str:
+    """Summarize raw tool output into a short activity detail."""
     cleaned = " ".join(line.strip() for line in raw_lines if line.strip())
     if len(cleaned) > 240:
         return cleaned[:237] + "..."
@@ -2770,6 +2838,7 @@ def _summarize_raw_output(raw_lines: list[str]) -> str:
 
 
 def _extract_last_output_folder(raw_lines: list[str]) -> str | None:
+    """Extract the last output folder path from raw tool output."""
     for line in reversed(raw_lines):
         stripped = line.strip()
         match = re.search(r"Output written to:\s*(.+)$", stripped)
@@ -2784,6 +2853,7 @@ def _extract_last_output_folder(raw_lines: list[str]) -> str | None:
 
 
 def _extract_timestamp_output_root(path_value: str) -> str | None:
+    """Extract and sanitize a timestamped output root from planner output."""
     stripped = path_value.strip()
     if not stripped:
         return None
@@ -2818,6 +2888,7 @@ def _extract_timestamp_output_root(path_value: str) -> str | None:
 
 
 def _sanitize_planner_payload(payload: dict) -> PlannerDecision | None:
+    """Sanitize the planner payload before sending it to the LLM."""
     if not isinstance(payload, dict):
         return None
 
@@ -2971,6 +3042,7 @@ def _sanitize_planner_missing_fields(
     *,
     activity_events: list[ActivityEventDraft],
 ) -> list[str]:
+    """Sanitize missing fields returned by the planner."""
     if not isinstance(raw_missing_fields, list):
         return []
 
@@ -2999,6 +3071,7 @@ def _sanitize_planner_missing_fields(
 
 
 def _is_internal_plan_field_name(field: str) -> bool:
+    """Return whether a field name is internal to the runtime."""
     stripped = field.strip()
     if not stripped:
         return False
@@ -3012,6 +3085,7 @@ def _is_internal_plan_field_name(field: str) -> bool:
 def _sanitize_planner_steps(
     raw_steps: object,
 ) -> tuple[list[PlannerStep], list[ActivityEventDraft]]:
+    """Sanitize planner steps before execution."""
     if not isinstance(raw_steps, list):
         return [], []
 
@@ -3070,6 +3144,7 @@ def _unsupported_action_message(
     raw_action: str,
     closest_actions: list[str],
 ) -> str:
+    """Build a message for unsupported planner actions."""
     if closest_actions:
         suggestion_text = ", ".join(f"`{name}`" for name in closest_actions)
         return (
@@ -3088,6 +3163,7 @@ def _closest_supported_actions(
     assistant_message: str,
     reasoning: str,
 ) -> list[str]:
+    """Choose the closest supported actions for planner fallback."""
     source_text = " ".join(
         part for part in (raw_action, assistant_message, reasoning) if part
     ).lower()
@@ -3119,6 +3195,7 @@ def _sanitize_planner_arguments(
     action: str | None,
     raw_arguments: object,
 ) -> dict[str, str | bool | int | float | None]:
+    """Sanitize planner-provided arguments before validation."""
     if action not in TOOLS or not isinstance(raw_arguments, dict):
         return {}
 
@@ -3135,6 +3212,7 @@ def _sanitize_planner_arguments(
 
 
 def _normalize_planner_confidence(value: object) -> float | None:
+    """Normalize planner confidence values to the runtime scale."""
     if value is None or value == "":
         return None
 
@@ -3151,6 +3229,7 @@ def _normalize_planner_confidence(value: object) -> float | None:
 
 
 def _parse_relaxed_json(response: str) -> dict | None:
+    """Parse relaxed JSON from planner output."""
     for candidate in _json_candidates_from_response(response):
         try:
             parsed = json.loads(candidate, strict=False)
@@ -3162,6 +3241,7 @@ def _parse_relaxed_json(response: str) -> dict | None:
 
 
 def _json_candidates_from_response(response: str) -> list[str]:
+    """Extract JSON candidate objects from text responses."""
     cleaned = response.strip()
     candidates: list[str] = []
 
@@ -3190,6 +3270,7 @@ def _json_candidates_from_response(response: str) -> list[str]:
 
 
 def _strip_code_fences(value: str) -> str:
+    """Strip code fences from text output."""
     cleaned = value.strip()
     if cleaned.startswith("```json"):
         cleaned = cleaned.removeprefix("```json").strip()
@@ -3201,6 +3282,7 @@ def _strip_code_fences(value: str) -> str:
 
 
 def _extract_company_hint(user_input: str) -> str | None:
+    """Extract a hint for company name from planner output."""
     patterns = (
         r"\bcompany name\s+([A-Za-z0-9][A-Za-z0-9 .&'_-]*?)(?:\s+and|\s+to\s+|\s+for\s+|\s*$)",
         r"\bcompany\s+([A-Za-z0-9][A-Za-z0-9 .&'_-]*?)(?:\s+and|\s+to\s+|\s+for\s+|\s*$)",
@@ -3219,6 +3301,7 @@ def _get_context_entry(
     context: ConversationContext,
     key: str,
 ) -> ContextValue | None:
+    """Return the raw context entry for a given key."""
     section = CONTEXT_SECTIONS.get(key)
     if section == "request":
         return context.request.get(key)
@@ -3230,11 +3313,13 @@ def _get_context_entry(
 
 
 def _get_context_value(context: ConversationContext, key: str):
+    """Return a typed ContextValue for a context key."""
     entry = _get_context_entry(context, key)
     return None if entry is None else entry.value
 
 
 def _set_context_value(context: ConversationContext, value: ContextValue) -> None:
+    """Set a ContextValue into the conversation context."""
     section = CONTEXT_SECTIONS[value.key]
     if section == "request":
         context.request[value.key] = value
@@ -3248,6 +3333,7 @@ def _apply_context_patch(
     context: ConversationContext,
     patch: list[ContextValue],
 ) -> None:
+    """Apply a context patch to the current conversation context."""
     next_workflow = _extract_patch_value(patch, "selected_workflow")
     current_workflow = _get_context_value(context, "selected_workflow")
     if next_workflow and next_workflow != current_workflow:
@@ -3261,10 +3347,12 @@ def _apply_context_patch(
 
 
 def _clone_context(context: ConversationContext) -> ConversationContext:
+    """Clone the current conversation context."""
     return ConversationContext.model_validate(context.model_dump(mode="json"))
 
 
 def _extract_patch_value(patch: list[ContextValue], key: str):
+    """Extract a normalized patch value for context updates."""
     for item in patch:
         if item.key == key:
             return item.value
@@ -3278,6 +3366,7 @@ def _context_value(
     source: str,
     status: str,
 ) -> ContextValue:
+    """Create a ContextValue record from a key, value, source, and status."""
     return ContextValue(
         key=key,
         label=CONTEXT_LABELS[key],
@@ -3296,6 +3385,7 @@ def _activity_event(
     raw_lines: list[str] | None = None,
     turn_id: str | None = None,
 ) -> ActivityEvent:
+    """Create an activity event object from metadata."""
     return ActivityEvent(
         event_id=str(uuid.uuid4()),
         category=category,
@@ -3308,6 +3398,7 @@ def _activity_event(
 
 
 def _draft_to_event(draft: ActivityEventDraft, *, turn_id: str) -> ActivityEvent:
+    """Convert an activity draft into a concrete ActivityEvent."""
     return _activity_event(
         category=draft.category,
         summary=draft.summary,
@@ -3318,6 +3409,7 @@ def _draft_to_event(draft: ActivityEventDraft, *, turn_id: str) -> ActivityEvent
 
 
 def _chat_message(*, role: str, content: str, turn_id: str):
+    """Create a chat message object for storing in conversation history."""
     from assistant.schemas import ChatMessage
 
     return ChatMessage(role=role, content=content, turn_id=turn_id)
