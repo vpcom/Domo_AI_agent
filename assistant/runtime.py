@@ -131,53 +131,53 @@ CONTEXT_SECTIONS = {
 VALID_CONTEXT_SOURCES = {"user", "inferred", "default", "workflow"}
 VALID_CONTEXT_STATUSES = {"confirmed", "pending", "missing"}
 
-SEARCH_PATTERNS = (
-    "search for jobs",
-    "find jobs",
-    "look for jobs",
-    "discover jobs",
-    "job search",
-    "job ads",
-)
-WEB_SEARCH_PATTERNS = (
-    "search the web",
-    "search the internet",
-    "look on the internet",
-    "look on the web",
-    "web search",
-    "internet search",
-    "look it up",
-)
-CREATE_JOB_PATTERNS = (
-    "create job files",
-    "generate application files",
-    "process job folder",
-    "process existing job folder",
-    "prepare job files",
-    "prepare documents",
-    "prepare document",
-    "prepare docs",
-    "application documents",
-    "job offer",
-)
-MATCH_CV_PATTERNS = (
-    "match cv",
-    "best cv",
-    "which cv",
-    "compare cv",
-    "fit this job",
-)
-FOLLOW_UP_HINTS = (
-    "same",
-    "change",
-    "update",
-    "use",
-    "remote",
-    "location",
-    "role",
-    "folder",
-    "cv",
-)
+# SEARCH_PATTERNS = (
+#     "search for jobs",
+#     "find jobs",
+#     "look for jobs",
+#     "discover jobs",
+#     "job search",
+#     "job ads",
+# )
+# WEB_SEARCH_PATTERNS = (
+#     "search the web",
+#     "search the internet",
+#     "look on the internet",
+#     "look on the web",
+#     "web search",
+#     "internet search",
+#     "look it up",
+# )
+# CREATE_JOB_PATTERNS = (
+#     "create job files",
+#     "generate application files",
+#     "process job folder",
+#     "process existing job folder",
+#     "prepare job files",
+#     "prepare documents",
+#     "prepare document",
+#     "prepare docs",
+#     "application documents",
+#     "job offer",
+# )
+# MATCH_CV_PATTERNS = (
+#     "match cv",
+#     "best cv",
+#     "which cv",
+#     "compare cv",
+#     "fit this job",
+# )
+# FOLLOW_UP_HINTS = (
+#     "same",
+#     "change",
+#     "update",
+#     "use",
+#     "remote",
+#     "location",
+#     "role",
+#     "folder",
+#     "cv",
+# )
 
 # Planner prompt and behavior rules
 PLANNER_SYSTEM_PROMPT = f"""
@@ -2506,60 +2506,60 @@ def _extract_folder_value(user_input: str, *, labels: tuple[str, ...]) -> str | 
     return None
 
 
-def _infer_workflow_from_text(
-    user_input: str,
-    state: ConversationState,
-) -> tuple[str | None, list[str]]:
-    """Infer the most likely workflow from a chat turn and explain why.
+# def _infer_workflow_from_text(
+#     user_input: str,
+#     state: ConversationState,
+# ) -> tuple[str | None, list[str]]:
+#     """Infer the most likely workflow from a chat turn and explain why.
 
-    The local planner uses a router before falling back to the LLM planner.
-    Returns both the inferred workflow identifier and a list of routing methods
-    that matched, so the user can understand the logic."""
-    lowered = user_input.lower()
-    methods: list[str] = []
+#     The local planner uses a router before falling back to the LLM planner.
+#     Returns both the inferred workflow identifier and a list of routing methods
+#     that matched, so the user can understand the logic."""
+#     lowered = user_input.lower()
+#     methods: list[str] = []
 
-    if any(pattern in lowered for pattern in WEB_SEARCH_PATTERNS):
-        methods.append("search_web_pattern")
-        return "search_web", methods
+#     if any(pattern in lowered for pattern in WEB_SEARCH_PATTERNS):
+#         methods.append("search_web_pattern")
+#         return "search_web", methods
 
-    # CV-matching keywords
-    if any(pattern in lowered for pattern in MATCH_CV_PATTERNS):
-        methods.append("match_cv_pattern")
-        return "match_cv", methods
-    if _looks_like_create_job_files_request(lowered):
-        methods.append("create_job_files_pattern")
-        return "create_job_files", methods
-    if any(pattern in lowered for pattern in SEARCH_PATTERNS):
-        methods.append("run_job_agent_pattern")
-        return "run_job_agent", methods
+#     # CV-matching keywords
+#     if any(pattern in lowered for pattern in MATCH_CV_PATTERNS):
+#         methods.append("match_cv_pattern")
+#         return "match_cv", methods
+#     if _looks_like_create_job_files_request(lowered):
+#         methods.append("create_job_files_pattern")
+#         return "create_job_files", methods
+#     if any(pattern in lowered for pattern in SEARCH_PATTERNS):
+#         methods.append("run_job_agent_pattern")
+#         return "run_job_agent", methods
 
-    # local job-file generation cues
-    current_workflow = _get_context_value(state.context, "selected_workflow")
-    if current_workflow and any(hint in lowered for hint in FOLLOW_UP_HINTS):
-        methods.append("follow_up_hint")
-        methods.append("retained_workflow")
-        return str(current_workflow), methods
+#     # local job-file generation cues
+#     current_workflow = _get_context_value(state.context, "selected_workflow")
+#     if current_workflow and any(hint in lowered for hint in FOLLOW_UP_HINTS):
+#         methods.append("follow_up_hint")
+#         methods.append("retained_workflow")
+#         return str(current_workflow), methods
 
-    return None, ["no_local_match"]
+#     return None, ["no_local_match"]
 
 
-def _looks_like_create_job_files_request(lowered: str) -> bool:
-    """Determine whether the current turn resembles a create_job_files request."""
-    if any(pattern in lowered for pattern in CREATE_JOB_PATTERNS):
-        return True
+# def _looks_like_create_job_files_request(lowered: str) -> bool:
+#     """Determine whether the current turn resembles a create_job_files request."""
+#     if any(pattern in lowered for pattern in CREATE_JOB_PATTERNS):
+#         return True
 
-    mentions_folder = (
-        "folder" in lowered
-        or "data/inputs/jobs" in lowered
-        or " in jobs " in lowered
-    )
-    mentions_documents = (
-        "prepare" in lowered
-        and ("document" in lowered or "docs" in lowered or "materials" in lowered)
-    )
-    mentions_company_hint = "company name" in lowered or "job offer" in lowered
+#     mentions_folder = (
+#         "folder" in lowered
+#         or "data/inputs/jobs" in lowered
+#         or " in jobs " in lowered
+#     )
+#     mentions_documents = (
+#         "prepare" in lowered
+#         and ("document" in lowered or "docs" in lowered or "materials" in lowered)
+#     )
+#     mentions_company_hint = "company name" in lowered or "job offer" in lowered
 
-    return mentions_folder and (mentions_documents or mentions_company_hint)
+#     return mentions_folder and (mentions_documents or mentions_company_hint)
 
 
 def _build_open_question(workflow: str, missing_fields: list[str]) -> str:
