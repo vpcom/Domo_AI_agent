@@ -1,3 +1,8 @@
+"""Export job pdf module for the Domo assistant.
+
+Export job pdf tooling support for the Domo assistant.
+"""
+
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.pdfgen import canvas
@@ -12,6 +17,8 @@ from tools.job.models import JobState
 
 
 def run(state: JobState) -> None:
+    """Return run."""
+
     print(f"[pdf] reading cleaned_file={state.cleaned_file}")
     content = state.cleaned_file.read_text(encoding="utf-8")
     print(f"[pdf] content characters={len(content)}")
@@ -62,6 +69,8 @@ def run(state: JobState) -> None:
 
 
 def _advance_or_new_page(pdf, y, top_margin):
+    """Return advance or new page."""
+
     if y >= 50:
         return y
 

@@ -1,3 +1,8 @@
+"""Run job agent workflow module for the Domo assistant.
+
+Run job agent workflow workflow definitions for the Domo assistant.
+"""
+
 from assistant.config import get_config_path, get_display_path, is_debug_enabled
 from tools.job.run_job_agent import run_job_agent
 
@@ -9,6 +14,8 @@ def run_job_agent_workflow(
     ignore_location: bool | None = None,
     remote_only: bool | None = None,
 ):
+    """Run job agent workflow."""
+
     yield "Starting job workflow...\n"
     if folder_path:
         yield f"Resolved job input: {folder_path}\n"

@@ -1,9 +1,16 @@
+"""Pdf utils module for the Domo assistant.
+
+Pdf utils tooling support for the Domo assistant.
+"""
+
 from pathlib import Path
 
 from assistant.config import is_debug_enabled
 
 
 def extract_pdf_text(file_path: Path) -> str:
+    """Extract pdf text."""
+
     try:
         from pypdf import PdfReader
     except Exception as exc:

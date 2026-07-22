@@ -1,3 +1,8 @@
+"""Match cv module for the Domo assistant.
+
+Match cv tooling support for the Domo assistant.
+"""
+
 from pathlib import Path
 from datetime import datetime, timedelta
 import json
@@ -18,10 +23,14 @@ from tools.job.pdf_utils import extract_pdf_text
 
 
 def _normalize_whitespace(text: str) -> str:
+    """Return normalize whitespace."""
+
     return re.sub(r"\s+", " ", text).strip()
 
 
 def _strip_code_fences(text: str) -> str:
+    """Return strip code fences."""
+
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
@@ -30,6 +39,8 @@ def _strip_code_fences(text: str) -> str:
 
 
 def _extract_first_json_object(text: str) -> dict:
+    """Extract first json object."""
+
     cleaned = _strip_code_fences(text)
 
     try:
@@ -79,6 +90,8 @@ def _extract_first_json_object(text: str) -> dict:
 
 
 def _coerce_score(value) -> float | None:
+    """Return coerce score."""
+
     if value is None:
         return None
 
@@ -104,6 +117,8 @@ def _coerce_score(value) -> float | None:
 
 
 def _extract_score_from_text(text: str) -> float | None:
+    """Extract score from text."""
+
     cleaned = _normalize_whitespace(_strip_code_fences(text))
     patterns = [
         r"([0-9]+(?:\.[0-9]+)?)\s*/\s*10\b",
@@ -119,6 +134,8 @@ def _extract_score_from_text(text: str) -> float | None:
 
 
 def _normalize_list(value) -> list[str]:
+    """Return normalize list."""
+
     if value is None:
         return []
     if isinstance(value, list):
@@ -128,6 +145,8 @@ def _normalize_list(value) -> list[str]:
 
 
 def _extract_fit_summary(parsed: dict, raw_response: str) -> str:
+    """Extract fit summary."""
+
     summary_keys = [
         "fit_summary",
         "summary",
@@ -155,6 +174,8 @@ def _extract_fit_summary(parsed: dict, raw_response: str) -> str:
 
 
 def _repair_llm_evaluation(raw_response: str) -> tuple[dict, str | None]:
+    """Return repair llm evaluation."""
+
     repair_prompt = f"""You are extracting structured data from a CV-to-job evaluation.
 
 Convert the evaluation below into JSON. If the evaluation does not contain an explicit score,
@@ -181,6 +202,8 @@ Evaluation:
 
 
 def _interpret_llm_evaluation(response: str) -> dict:
+    """Return interpret llm evaluation."""
+
     parsed = _extract_first_json_object(response)
 
     score = _coerce_score(parsed.get("score"))
@@ -212,6 +235,8 @@ def _interpret_llm_evaluation(response: str) -> dict:
     }
 
 def _resolve_path(path: Path) -> Path:
+    """Resolve path."""
+
     if path.is_absolute():
         return path.resolve()
 
@@ -252,6 +277,8 @@ def _resolve_path(path: Path) -> Path:
 
 
 def match_cv(job_folder: str, cvs_folder: str | None = None):
+    """Return match cv."""
+
     job_path = Path(job_folder)
     configured_paths = get_paths()
     default_cvs_path = configured_paths["cvs_root"]

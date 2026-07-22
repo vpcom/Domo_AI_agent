@@ -1,3 +1,8 @@
+"""Web search workflow module for the Domo assistant.
+
+Web search workflow workflow definitions for the Domo assistant.
+"""
+
 from assistant.config import is_debug_enabled
 from tools.web_search import search_web
 
@@ -7,6 +12,8 @@ def run_web_search_workflow(
     max_results: int | None = None,
     output_path: str | None = None,
 ):
+    """Run web search workflow."""
+
     yield "Starting web search workflow...\n"
     yield f"Query: {query}\n"
     if max_results is not None:

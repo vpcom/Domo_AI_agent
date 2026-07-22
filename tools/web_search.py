@@ -1,3 +1,7 @@
+"""Public web search capability used by the agent."""
+
+from __future__ import annotations
+
 from base64 import b64decode
 from binascii import Error as BinasciiError
 from html import unescape
@@ -8,6 +12,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 
 from tools.job.filesystem import save_text
+
 
 SEARCH_URL = "https://html.duckduckgo.com/html/"
 REQUEST_TIMEOUT = 30
@@ -37,6 +42,8 @@ ANOMALY_MARKERS = (
 
 class _DuckDuckGoResultParser(HTMLParser):
     def __init__(self) -> None:
+        """Return init  ."""
+
         super().__init__()
         self.results: list[dict[str, str]] = []
         self._in_title = False
@@ -44,6 +51,8 @@ class _DuckDuckGoResultParser(HTMLParser):
         self._title_parts: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Handle starttag."""
+
         if tag != "a":
             return
 
@@ -56,10 +65,14 @@ class _DuckDuckGoResultParser(HTMLParser):
             self._title_parts = []
 
     def handle_data(self, data: str) -> None:
+        """Handle data."""
+
         if self._in_title:
             self._title_parts.append(data)
 
     def handle_endtag(self, tag: str) -> None:
+        """Handle endtag."""
+
         if tag != "a" or not self._in_title:
             return
 
@@ -73,6 +86,8 @@ class _DuckDuckGoResultParser(HTMLParser):
 
 
 def _normalize_result_url(raw_url: str) -> str:
+    """Normalize the result URL returned by the search page."""
+
     current = unescape(raw_url)
     seen: set[str] = set()
 
@@ -98,6 +113,8 @@ def _normalize_result_url(raw_url: str) -> str:
 
 
 def _decode_redirect_value(value: str) -> str:
+    """Decode a redirected URL value from the search result."""
+
     current = unescape(value)
     seen: set[str] = set()
 
@@ -126,12 +143,16 @@ def _decode_redirect_value(value: str) -> str:
 
 
 def _clamp_max_results(value: int | None) -> int:
+    """Clamp the maximum results to the allowed limit."""
+
     if value is None:
         return DEFAULT_MAX_RESULTS
     return max(1, min(int(value), MAX_ALLOWED_RESULTS))
 
 
 def _looks_like_anomaly_page(html: str) -> bool:
+    """Detect whether the page indicates a search anomaly."""
+
     lowered = html.lower()
     return any(marker in lowered for marker in ANOMALY_MARKERS)
 
@@ -140,7 +161,9 @@ def search_web(
     query: str,
     max_results: int | None = None,
     output_path: str | None = None,
-):
+) -> dict:
+    """Return search web."""
+
     normalized_query = query.strip()
     if not normalized_query:
         raise ValueError("A search query is required.")
@@ -162,16 +185,36 @@ def search_web(
     parser.feed(response.text)
     results = parser.results[:result_limit]
     if not results:
-        raise ValueError(f"No search results found for query: {normalized_query}")
+        raise ValueError(
+            f"No search results found for query: {normalized_query}")
 
-    rendered_lines = [f"Found {len(results)} result(s) for: {normalized_query}\n"]
+    rendered_lines = [
+        f"Found {len(results)} result(s) for: {normalized_query}\n"]
     for index, result in enumerate(results, start=1):
         rendered_lines.append(f"{index}. {result['title']}\n")
         rendered_lines.append(f"   URL: {result['url']}\n")
+    rendered_output = "".join(rendered_lines).strip()
 
-    rendered_output = "".join(rendered_lines)
-    yield rendered_output
-
+    artifacts: list[dict] = []
     if output_path:
-        save_text(Path(output_path), rendered_output)
-        yield f"Output written to: {output_path}\n"
+        destination = Path(output_path)
+        save_text(destination, rendered_output + "\n")
+        artifacts.append(
+            {
+                "name": destination.name,
+                "kind": "file",
+                "path": str(destination),
+                "metadata": {"content_type": "search_results"},
+            }
+        )
+
+    return {
+        "result": {
+            "query": normalized_query,
+            "results": results,
+        },
+        "metadata": {
+            "display_text": rendered_output,
+            "artifacts": artifacts,
+        },
+    }

@@ -1,3 +1,8 @@
+"""Clean job description module for the Domo assistant.
+
+Clean job description tooling support for the Domo assistant.
+"""
+
 from integrations.ollama_client import call_llm
 from tools.job.filesystem import save_text
 from tools.job.models import JobState
@@ -6,6 +11,8 @@ from tools.job.text_normalization import normalize_job_posting_text
 
 
 def clean_job_description(raw_job_text: str) -> str:
+    """Return clean job description."""
+
     normalized_raw_text = normalize_job_posting_text(raw_job_text)
     cleaning_prompt = build_cleaning_prompt(normalized_raw_text)
     cleaned = call_llm(cleaning_prompt).strip()
@@ -13,6 +20,8 @@ def clean_job_description(raw_job_text: str) -> str:
 
 
 def run(state: JobState) -> None:
+    """Return run."""
+
     print(f"[clean] reading raw_file={state.raw_file}")
     raw_text = state.raw_file.read_text(encoding="utf-8")
     print(f"[clean] raw characters={len(raw_text)}")

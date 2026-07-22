@@ -1,144 +1,205 @@
-from dataclasses import dataclass
-from typing import Any, Callable
+"""Static capability registries for planner-visible tools and LLM tasks."""
 
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable
+
+from assistant.capabilities import CAPABILITY_DEFINITIONS
+from assistant.llm_tasks import (
+    answer_question,
+    evaluate_text,
+    generate_document_set,
+    rank_cvs,
+    summarize_text,
+)
 from assistant.schemas import (
+    AnswerQuestionArgs,
+    BuildApplicationNotesArgs,
+    CleanJobDescriptionArgs,
     CopyFileArgs,
     CreateJobFilesArgs,
-    EvaluateDocumentsArgs,
-    MatchCvArgs,
+    DiscoverJobsArgs,
+    EvaluateTextArgs,
+    GenerateDocumentSetArgs,
+    GenerateApplicationMaterialsArgs,
+    InspectPathArgs,
+    ListDirectoryArgs,
     ReadDocumentsArgs,
+    ReadJobMetadataArgs,
+    ReadJsonFileArgs,
+    ReadPdfTextArgs,
+    ReadTextFileArgs,
+    RankCvArgs,
+    ResolveJobFolderHintArgs,
+    ResolveLocalJobInputsArgs,
     RunJobAgentArgs,
     SearchWebArgs,
-    SummarizeDocumentsArgs,
+    SummarizeTextArgs,
     WriteDocumentArgs,
+    WriteGeneratedDocumentsArgs,
+    WriteJsonFileArgs,
+    WriteSearchResultsArgs,
 )
-from workflows.document_workflows import (
-    run_copy_file_workflow,
-    run_evaluate_documents_workflow,
-    run_read_documents_workflow,
-    run_summarize_documents_workflow,
-    run_write_document_workflow,
+from tools.atomic_tools import (
+    build_application_notes_from_job_description,
+    clean_job_description,
+    discover_jobs,
+    generate_application_materials,
+    inspect_path,
+    list_directory,
+    read_job_metadata,
+    read_json_file,
+    read_pdf_text,
+    read_text_file,
+    resolve_job_folder_hint,
+    resolve_local_job_inputs,
+    write_json_file,
+    write_generated_documents,
+    write_search_results,
 )
-from workflows.create_job_files_workflow import run_create_job_files_workflow
-from workflows.match_cv_workflow import run_match_cv_workflow
-from workflows.run_job_agent_workflow import run_job_agent_workflow
-from workflows.web_search_workflow import run_web_search_workflow
+from tools.document_actions import copy_file, read_documents, write_document
+from tools.job.create_job_files import create_job_files
+from tools.job.run_job_agent import run_job_agent
+from tools.web_search import search_web
 
 
 @dataclass(frozen=True)
-class ToolSpec:
+class CapabilitySpec:
     name: str
-    arg_model: type
-    argument_keys: tuple[str, ...]
-    required_keys: tuple[str, ...]
-    context_keys: tuple[str, ...]
+    function: Callable[..., dict]
+    input_model: type
     description: str
-    aliases: tuple[str, ...]
-    executor: Callable[..., Any]
+    group: str
+    kind: str
+    approval: str
+    risks: tuple[str, ...]
+    account_access: bool = False
+    allowed: bool = True
 
 
-# The agent can mostly execute these 3 workflows
-WORKFLOWS = {
-    "run_job_agent": run_job_agent_workflow,
-    "create_job_files": run_create_job_files_workflow,
-    "match_cv": run_match_cv_workflow,
-    "search_web": run_web_search_workflow,
-    "copy_file": run_copy_file_workflow,
-    "write_document": run_write_document_workflow,
-    "read_documents": run_read_documents_workflow,
-    "summarize_documents": run_summarize_documents_workflow,
-    "evaluate_documents": run_evaluate_documents_workflow,
+def _build_spec(name: str, function: Callable[..., dict], input_model: type) -> CapabilitySpec:
+    """Build spec."""
+
+    definition = CAPABILITY_DEFINITIONS[name]
+    return CapabilitySpec(
+        name=name,
+        function=function,
+        input_model=input_model,
+        description=definition.description,
+        group=definition.group,
+        kind=definition.kind,
+        approval=definition.approval,
+        risks=definition.risks,
+        account_access=definition.account_access,
+        allowed=definition.access == "planner_visible",
+    )
+
+
+READ_TOOLS = {
+    "inspect_path": _build_spec("inspect_path", inspect_path, InspectPathArgs),
+    "list_directory": _build_spec("list_directory", list_directory, ListDirectoryArgs),
+    "read_text_file": _build_spec("read_text_file", read_text_file, ReadTextFileArgs),
+    "read_json_file": _build_spec("read_json_file", read_json_file, ReadJsonFileArgs),
+    "read_pdf_text": _build_spec("read_pdf_text", read_pdf_text, ReadPdfTextArgs),
+    "read_documents": _build_spec("read_documents", read_documents, ReadDocumentsArgs),
+    "search_web": _build_spec("search_web", search_web, SearchWebArgs),
+    "resolve_job_folder_hint": _build_spec(
+        "resolve_job_folder_hint",
+        resolve_job_folder_hint,
+        ResolveJobFolderHintArgs,
+    ),
+    "resolve_local_job_inputs": _build_spec(
+        "resolve_local_job_inputs",
+        resolve_local_job_inputs,
+        ResolveLocalJobInputsArgs,
+    ),
+    "read_job_metadata": _build_spec(
+        "read_job_metadata",
+        read_job_metadata,
+        ReadJobMetadataArgs,
+    ),
+    "discover_jobs": _build_spec("discover_jobs", discover_jobs, DiscoverJobsArgs),
+}
+
+TRANSFORM_TOOLS = {
+    "clean_job_description": _build_spec(
+        "clean_job_description",
+        clean_job_description,
+        CleanJobDescriptionArgs,
+    ),
+    "generate_application_materials": _build_spec(
+        "generate_application_materials",
+        generate_application_materials,
+        GenerateApplicationMaterialsArgs,
+    ),
+    "build_application_notes_from_job_description": _build_spec(
+        "build_application_notes_from_job_description",
+        build_application_notes_from_job_description,
+        BuildApplicationNotesArgs,
+    ),
+}
+
+WRITE_TOOLS = {
+    "copy_file": _build_spec("copy_file", copy_file, CopyFileArgs),
+    "write_document": _build_spec("write_document", write_document, WriteDocumentArgs),
+    "write_json_file": _build_spec(
+        "write_json_file",
+        write_json_file,
+        WriteJsonFileArgs,
+    ),
+    "write_search_results": _build_spec(
+        "write_search_results",
+        write_search_results,
+        WriteSearchResultsArgs,
+    ),
+    "write_generated_documents": _build_spec(
+        "write_generated_documents",
+        write_generated_documents,
+        WriteGeneratedDocumentsArgs,
+    ),
+}
+
+COMMANDS = {
+    "run_job_agent": _build_spec("run_job_agent", run_job_agent, RunJobAgentArgs),
+    "create_job_files": _build_spec(
+        "create_job_files",
+        create_job_files,
+        CreateJobFilesArgs,
+    ),
 }
 
 TOOLS = {
-    "run_job_agent": ToolSpec(
-        name="run_job_agent",
-        arg_model=RunJobAgentArgs,
-        argument_keys=("folder_path", "role", "location", "ignore_location", "remote_only"),
-        required_keys=(),
-        context_keys=("folder_path", "role", "location", "ignore_location", "remote_only"),
-        description="Search online jobs or process an existing local job folder.",
-        aliases=("job search", "search jobs", "find jobs", "discover jobs"),
-        executor=WORKFLOWS["run_job_agent"],
+    **READ_TOOLS,
+    **TRANSFORM_TOOLS,
+    **WRITE_TOOLS,
+    **COMMANDS,
+}
+
+LLM_TASKS = {
+    "answer_question": _build_spec(
+        "answer_question",
+        answer_question,
+        AnswerQuestionArgs,
     ),
-    "match_cv": ToolSpec(
-        name="match_cv",
-        arg_model=MatchCvArgs,
-        argument_keys=("job_folder", "cvs_folder"),
-        required_keys=("job_folder",),
-        context_keys=("job_folder", "cvs_folder"),
-        description="Compare CV PDFs against a specific job folder.",
-        aliases=("match cv", "best cv", "compare cv", "rank cvs"),
-        executor=WORKFLOWS["match_cv"],
+    "summarize_text": _build_spec(
+        "summarize_text",
+        summarize_text,
+        SummarizeTextArgs,
     ),
-    "create_job_files": ToolSpec(
-        name="create_job_files",
-        arg_model=CreateJobFilesArgs,
-        argument_keys=("job_folder",),
-        required_keys=("job_folder",),
-        context_keys=("job_folder",),
-        description="Generate application files from an existing local job folder.",
-        aliases=("create job files", "prepare documents", "generate application files"),
-        executor=WORKFLOWS["create_job_files"],
+    "evaluate_text": _build_spec(
+        "evaluate_text",
+        evaluate_text,
+        EvaluateTextArgs,
     ),
-    "search_web": ToolSpec(
-        name="search_web",
-        arg_model=SearchWebArgs,
-        argument_keys=("query", "max_results", "output_path"),
-        required_keys=("query",),
-        context_keys=("query", "max_results", "output_path"),
-        description="Search the web and return the top public search results.",
-        aliases=("web search", "internet search", "search the internet", "search the web"),
-        executor=WORKFLOWS["search_web"],
+    "generate_document_set": _build_spec(
+        "generate_document_set",
+        generate_document_set,
+        GenerateDocumentSetArgs,
     ),
-    "copy_file": ToolSpec(
-        name="copy_file",
-        arg_model=CopyFileArgs,
-        argument_keys=("source_path", "destination_path"),
-        required_keys=("source_path", "destination_path"),
-        context_keys=("source_path", "destination_path"),
-        description="Copy a file from the project into the outputs directory without overwriting.",
-        aliases=("copy file", "duplicate file", "copy document"),
-        executor=WORKFLOWS["copy_file"],
-    ),
-    "write_document": ToolSpec(
-        name="write_document",
-        arg_model=WriteDocumentArgs,
-        argument_keys=("destination_path", "content"),
-        required_keys=("destination_path", "content"),
-        context_keys=("destination_path",),
-        description="Write a new text document under the outputs directory without overwriting.",
-        aliases=("write file", "write document", "save text", "create file"),
-        executor=WORKFLOWS["write_document"],
-    ),
-    "read_documents": ToolSpec(
-        name="read_documents",
-        arg_model=ReadDocumentsArgs,
-        argument_keys=("input_path", "recursive"),
-        required_keys=("input_path",),
-        context_keys=("input_path", "recursive"),
-        description="Read text, markdown, or PDF documents from a file or folder.",
-        aliases=("read documents", "read files", "open documents", "inspect documents"),
-        executor=WORKFLOWS["read_documents"],
-    ),
-    "summarize_documents": ToolSpec(
-        name="summarize_documents",
-        arg_model=SummarizeDocumentsArgs,
-        argument_keys=("input_path", "instructions", "output_path", "recursive"),
-        required_keys=("input_path",),
-        context_keys=("input_path", "instructions", "output_path", "recursive"),
-        description="Summarize one or more documents and optionally write the result to a file.",
-        aliases=("summarize documents", "summarise documents", "summarize files", "document summary", "analyze job ad"),
-        executor=WORKFLOWS["summarize_documents"],
-    ),
-    "evaluate_documents": ToolSpec(
-        name="evaluate_documents",
-        arg_model=EvaluateDocumentsArgs,
-        argument_keys=("input_path", "instructions", "output_path", "recursive"),
-        required_keys=("input_path", "instructions"),
-        context_keys=("input_path", "instructions", "output_path", "recursive"),
-        description="Evaluate and rank documents against explicit instructions or criteria.",
-        aliases=("evaluate documents", "rank documents", "sort documents", "score documents", "compare documents"),
-        executor=WORKFLOWS["evaluate_documents"],
+    "rank_cvs": _build_spec(
+        "rank_cvs",
+        rank_cvs,
+        RankCvArgs,
     ),
 }

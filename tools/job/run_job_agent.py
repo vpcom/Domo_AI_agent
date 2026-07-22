@@ -1,13 +1,18 @@
+"""Structured wrapper around the constrained internal job workflow command."""
+
+from __future__ import annotations
+
 from pathlib import Path
 import json
 import os
 import subprocess
 import sys
 
-from assistant.audit import log_event
 from assistant.config import get_job_workflow_config, get_prompt_override_fields
 
-SUBPROCESS_TIMEOUT_SECONDS = get_job_workflow_config()["subprocess_timeout_seconds"]
+
+SUBPROCESS_TIMEOUT_SECONDS = get_job_workflow_config()[
+    "subprocess_timeout_seconds"]
 
 
 def run_job_agent(
@@ -16,11 +21,8 @@ def run_job_agent(
     location: str | None = None,
     ignore_location: bool | None = None,
     remote_only: bool | None = None,
-):
-    """
-    Runs the job workflow.
-    Keeps legacy behavior for now via subprocess.
-    """
+) -> dict:
+    """Run the job agent workflow and stream the output."""
 
     base_path = Path(__file__).resolve().parent
     project_root = base_path.parents[1]
@@ -28,6 +30,7 @@ def run_job_agent(
     python_executable = str(
         project_python) if project_python.exists() else sys.executable
     cmd = [python_executable, "-m", "tools.job.main"]
+
     raw_search_overrides = {
         "role": role,
         "location": location,
@@ -48,10 +51,10 @@ def run_job_agent(
             )
         cmd.append(folder_path)
 
-    log_event("job_subprocess_spawned", command=cmd, cwd=str(project_root))
     env = os.environ.copy()
     if search_overrides:
         env["DOMO_JOB_SEARCH_OVERRIDES_JSON"] = json.dumps(search_overrides)
+
     process = subprocess.Popen(
         cmd,
         cwd=project_root,
@@ -63,23 +66,56 @@ def run_job_agent(
     )
 
     if process.stdout is None:
-        yield "Error: no subprocess output available.\n"
-        return
+        raise RuntimeError("No subprocess output available.")
 
+    lines: list[str] = []
     try:
         for line in process.stdout:
-            yield line
-
+            lines.append(line)
         process.wait(timeout=SUBPROCESS_TIMEOUT_SECONDS)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
         process.kill()
-        log_event("job_subprocess_timeout", command=cmd,
-                  timeout=SUBPROCESS_TIMEOUT_SECONDS)
-        yield (
+        raise RuntimeError(
             "Job workflow timed out and was terminated after "
-            f"{SUBPROCESS_TIMEOUT_SECONDS} seconds.\n"
-        )
-        return
+            f"{SUBPROCESS_TIMEOUT_SECONDS} seconds."
+        ) from exc
 
-    log_event("job_subprocess_finished", command=cmd,
-              returncode=process.returncode)
+    if process.returncode not in (0, None):
+        raise RuntimeError(
+            f"Job workflow failed with return code {process.returncode}.\n"
+            f"{''.join(lines).strip()}"
+        )
+
+    output_root = _extract_output_root(lines)
+    artifacts: list[dict] = []
+    if output_root:
+        artifacts.append(
+            {
+                "name": Path(output_root).name,
+                "kind": "folder",
+                "path": output_root,
+                "metadata": {"source": "job_workflow"},
+            }
+        )
+
+    return {
+        "result": {
+            "command": cmd,
+            "output_lines": lines,
+            "output_root": output_root,
+        },
+        "metadata": {
+            "display_text": "".join(lines).strip(),
+            "artifacts": artifacts,
+        },
+    }
+
+
+def _extract_output_root(lines: list[str]) -> str | None:
+    """Extract output root."""
+
+    for line in reversed(lines):
+        prefix = "Done. Output written to: "
+        if line.startswith(prefix):
+            return line[len(prefix):].strip()
+    return None

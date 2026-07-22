@@ -1,3 +1,8 @@
+"""Local job inputs module for the Domo assistant.
+
+Local job inputs tooling support for the Domo assistant.
+"""
+
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -31,6 +36,8 @@ class ResolvedLocalJobInputs:
 
 
 def _find_first_existing_file(job_folder: Path, file_names: tuple[str, ...]) -> Path | None:
+    """Return find first existing file."""
+
     for file_name in file_names:
         candidate = job_folder / file_name
         if candidate.exists() and candidate.is_file():
@@ -39,6 +46,8 @@ def _find_first_existing_file(job_folder: Path, file_names: tuple[str, ...]) -> 
 
 
 def find_cleaned_job_description_file(job_folder: Path) -> Path | None:
+    """Return find cleaned job description file."""
+
     return _find_first_existing_file(
         job_folder,
         (
@@ -49,14 +58,20 @@ def find_cleaned_job_description_file(job_folder: Path) -> Path | None:
 
 
 def find_pdf_job_description_file(job_folder: Path) -> Path | None:
+    """Return find pdf job description file."""
+
     return _find_first_existing_file(job_folder, PDF_DESCRIPTION_SOURCE_FILES)
 
 
 def find_source_text_job_description_file(job_folder: Path) -> Path | None:
+    """Return find source text job description file."""
+
     return _find_first_existing_file(job_folder, RAW_DESCRIPTION_SOURCE_FILES)
 
 
 def infer_local_pdf_metadata(job_folder: Path, description: str) -> dict:
+    """Return infer local pdf metadata."""
+
     folder_name = job_folder.name
     parts = [part.strip() for part in folder_name.split(" - ") if part.strip()]
     folder_date = parse_folder_date(folder_name)
@@ -83,6 +98,8 @@ def infer_local_pdf_metadata(job_folder: Path, description: str) -> dict:
 
 
 def _read_metadata_file(job_folder: Path) -> dict | None:
+    """Return read metadata file."""
+
     metadata_file = job_folder / METADATA_FILE
     if not metadata_file.exists() or not metadata_file.is_file():
         return None
@@ -90,6 +107,8 @@ def _read_metadata_file(job_folder: Path) -> dict | None:
 
 
 def resolve_local_job_inputs(job_folder: Path) -> ResolvedLocalJobInputs | None:
+    """Resolve local job inputs."""
+
     raw_file = job_folder / RAW_DESCRIPTION_FILE
     if raw_file.exists():
         raw_text = normalize_job_posting_text(raw_file.read_text(encoding="utf-8"))
@@ -156,4 +175,6 @@ def resolve_local_job_inputs(job_folder: Path) -> ResolvedLocalJobInputs | None:
 
 
 def ensure_local_job_inputs(job_folder: Path) -> None:
+    """Return ensure local job inputs."""
+
     resolve_local_job_inputs(job_folder)

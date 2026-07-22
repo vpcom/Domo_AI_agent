@@ -1,3 +1,8 @@
+"""Discover jobs module for the Domo assistant.
+
+Discover jobs tooling support for the Domo assistant.
+"""
+
 import json
 import os
 import re
@@ -132,6 +137,8 @@ ASHBY_COMPANIES = [
 
 
 def run(state: JobState) -> None:
+    """Return run."""
+
     print(f"[discover] start target_folder={state.raw_file.parent}")
     config = load_inputs_config()
     jobs = discover_jobs_from_config(config)
@@ -145,6 +152,8 @@ def run(state: JobState) -> None:
 
 
 def load_inputs_config(path: str | None = None) -> dict:
+    """Return load inputs config."""
+
     if path:
         with open(path, encoding="utf-8") as config_file:
             config = yaml.safe_load(config_file)
@@ -169,6 +178,8 @@ def load_inputs_config(path: str | None = None) -> dict:
 
 
 def discover_jobs_from_config(config: dict) -> List[Dict[str, str]]:
+    """Return discover jobs from config."""
+
     role = config["role"].lower()
     location = config["location"].lower()
     ignore_location = bool(config.get("ignore_location", False))
@@ -193,6 +204,8 @@ def discover_jobs_from_config(config: dict) -> List[Dict[str, str]]:
 
 
 def save_discovered_job(raw_file: Path, metadata_file: Path, job: Dict[str, str]) -> None:
+    """Return save discovered job."""
+
     normalized_description = normalize_job_posting_text(job["description"])
     save_text(raw_file, normalized_description)
     job_to_save = dict(job)
@@ -203,6 +216,8 @@ def save_discovered_job(raw_file: Path, metadata_file: Path, job: Dict[str, str]
 
 
 def build_job_folder_path(job: Dict[str, str], root: Path, date_prefix: str) -> Path:
+    """Build job folder path."""
+
     company = sanitize_path_component(job["company"]) or "Unknown Company"
     title = sanitize_path_component(job["title"]) or "Unknown Role"
     base_name = f"{date_prefix} - {company} - {title}"
@@ -227,6 +242,8 @@ def discover_jobs(
     source_companies: Dict[str, List[str]],
     max_company_attempts_per_source: Optional[int],
 ) -> List[Dict[str, str]]:
+    """Return discover jobs."""
+
     source_handlers: Dict[str, Callable[[str, int], List[Dict[str, str]]]] = {
         "greenhouse": fetch_greenhouse_jobs,
         "lever": fetch_lever_jobs,
@@ -302,6 +319,8 @@ def discover_jobs(
 
 
 def build_source_companies(config: dict) -> Dict[str, List[str]]:
+    """Build source companies."""
+
     configured_companies = config.get("companies", {})
     defaults = {
         "greenhouse": GREENHOUSE_COMPANIES,
@@ -319,6 +338,8 @@ def build_source_companies(config: dict) -> Dict[str, List[str]]:
 
 
 def load_job_search_overrides_from_env() -> dict:
+    """Return load job search overrides from env."""
+
     raw = os.environ.get("DOMO_JOB_SEARCH_OVERRIDES_JSON", "").strip()
     if not raw:
         return {}
@@ -339,6 +360,8 @@ def load_job_search_overrides_from_env() -> dict:
 
 
 def apply_job_search_overrides(config: dict, overrides: dict | None) -> dict:
+    """Apply job search overrides."""
+
     merged = dict(config)
     for key in get_prompt_override_fields("run_job_agent"):
         if overrides and key in overrides and overrides[key] is not None:
@@ -347,6 +370,8 @@ def apply_job_search_overrides(config: dict, overrides: dict | None) -> dict:
 
 
 def fetch_greenhouse_jobs(company: str, max_results: int) -> List[Dict[str, str]]:
+    """Return fetch greenhouse jobs."""
+
     url = f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs"
     response = requests.get(
         url,
@@ -372,6 +397,8 @@ def fetch_greenhouse_jobs(company: str, max_results: int) -> List[Dict[str, str]
 
 
 def fetch_lever_jobs(company: str, max_results: int) -> List[Dict[str, str]]:
+    """Return fetch lever jobs."""
+
     url = f"https://api.lever.co/v0/postings/{company}?mode=json"
     response = requests.get(url, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
@@ -395,6 +422,8 @@ def fetch_lever_jobs(company: str, max_results: int) -> List[Dict[str, str]]:
 
 
 def fetch_ashby_jobs(company: str, max_results: int) -> List[Dict[str, str]]:
+    """Return fetch ashby jobs."""
+
     url = f"https://api.ashbyhq.com/posting-api/job-board/{company}"
     response = requests.get(url, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
@@ -432,6 +461,8 @@ def select_best_jobs(
     ignore_location: bool = False,
     remote_only: bool = False,
 ) -> List[Dict[str, str]]:
+    """Return select best jobs."""
+
     require_location = not ignore_location and not remote_only
     configured_strategy_name = "strict"
     if remote_only:
@@ -482,6 +513,8 @@ def is_relevant(
     require_location: bool,
     remote_only: bool,
 ) -> bool:
+    """Return whether relevant."""
+
     title = normalize_text(job["title"])
     loc = normalize_text(job["location"])
     normalized_location = normalize_text(location)
@@ -502,6 +535,8 @@ def is_relevant(
 
 
 def score(job: Dict[str, str], role: str, location: str) -> int:
+    """Return score."""
+
     score_value = 0
     title = normalize_text(job["title"])
     loc = normalize_text(job["location"])
@@ -544,6 +579,8 @@ def decorate_job_with_score(
     location: str,
     strategy_name: str,
 ) -> Dict[str, str]:
+    """Return decorate job with score."""
+
     scored_job = dict(job)
     scored_job["search_score"] = score(job, role, location)
     scored_job["search_strategy"] = strategy_name
@@ -551,6 +588,8 @@ def decorate_job_with_score(
 
 
 def build_candidate_key(job: Dict[str, str]) -> str:
+    """Build candidate key."""
+
     if job.get("url"):
         return job["url"]
 
@@ -565,11 +604,15 @@ def build_candidate_key(job: Dict[str, str]) -> str:
 
 
 def normalize_text(value: str) -> str:
+    """Return normalize text."""
+
     lowered = value.lower().replace("/", " ").replace("-", " ")
     return re.sub(r"\s+", " ", lowered).strip()
 
 
 def dedupe_preserve_order(values: List[str]) -> List[str]:
+    """Return dedupe preserve order."""
+
     deduped = []
     seen = set()
 
@@ -583,6 +626,8 @@ def dedupe_preserve_order(values: List[str]) -> List[str]:
 
 
 def sanitize_path_component(value: str) -> str:
+    """Sanitize path component."""
+
     collapsed = re.sub(r"\s+", " ", value).strip()
     cleaned = re.sub(r"[^A-Za-z0-9 ._-]", "", collapsed)
     return cleaned[:80].strip(" ._-")

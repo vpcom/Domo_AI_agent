@@ -1,3 +1,8 @@
+"""Generate application materials module for the Domo assistant.
+
+Generate application materials tooling support for the Domo assistant.
+"""
+
 import json
 
 from integrations.ollama_client import call_llm
@@ -7,6 +12,8 @@ from tools.job.prompts import build_generation_prompt
 
 
 def parse_json_response(raw_text: str) -> dict:
+    """Return parse json response."""
+
     raw_text = raw_text.strip()
 
     try:
@@ -61,10 +68,14 @@ def parse_json_response(raw_text: str) -> dict:
 
 
 def build_application_notes_from_job_description(cleaned_job_text: str) -> str:
+    """Build application notes from job description."""
+
     return generate_application_materials(cleaned_job_text)["info"]
 
 
 def _normalize_text(value) -> str:
+    """Return normalize text."""
+
     if value is None:
         return ""
     if isinstance(value, str):
@@ -75,6 +86,8 @@ def _normalize_text(value) -> str:
 
 
 def _normalize_list(value) -> list[str]:
+    """Return normalize list."""
+
     if value is None:
         return []
     if isinstance(value, list):
@@ -86,6 +99,8 @@ def _normalize_list(value) -> list[str]:
 
 
 def generate_application_materials(cleaned_job_text: str) -> dict:
+    """Return generate application materials."""
+
     print(f"[info] generating materials from cleaned characters={len(cleaned_job_text)}")
     generation_prompt = build_generation_prompt(cleaned_job_text)
     raw_response = call_llm(generation_prompt)
@@ -127,6 +142,8 @@ COVER LETTER
 
 # AGENT TOOL ENTRYPOINT
 def run(state: JobState) -> None:
+    """Return run."""
+
     print(f"[info] reading cleaned_file={state.cleaned_file}")
     cleaned_text = state.cleaned_file.read_text(encoding="utf-8")
     materials = generate_application_materials(cleaned_text)

@@ -1,14 +1,23 @@
+"""Job folder resolution module for the Domo assistant.
+
+Job folder resolution tooling support for the Domo assistant.
+"""
+
 from datetime import date, datetime
 from pathlib import Path
 import re
 
 
 def normalize_search_text(value: str) -> str:
+    """Return normalize search text."""
+
     lowered = value.lower().replace("/", " ").replace("-", " ")
     return re.sub(r"[^a-z0-9]+", " ", lowered).strip()
 
 
 def parse_folder_date(folder_name: str) -> date | None:
+    """Return parse folder date."""
+
     match = re.match(r"(?P<date>\d{8})\b", folder_name)
     if not match:
         return None
@@ -24,6 +33,8 @@ def find_best_matching_job_folder(
     jobs_root: Path,
     today: date | None = None,
 ) -> Path | None:
+    """Return find best matching job folder."""
+
     if not jobs_root.exists() or not jobs_root.is_dir():
         return None
 
@@ -80,6 +91,8 @@ def resolve_job_folder_hint(
     jobs_root: Path,
     today: date | None = None,
 ) -> Path:
+    """Resolve job folder hint."""
+
     candidate = Path(folder_hint).expanduser()
     if candidate.is_absolute():
         return candidate.resolve()

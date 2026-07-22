@@ -1,3 +1,8 @@
+"""Text normalization module for the Domo assistant.
+
+Text normalization tooling support for the Domo assistant.
+"""
+
 import html
 import re
 
@@ -38,6 +43,8 @@ TAG_BLOCK_BREAKS = (
 
 
 def decode_html_entities(text: str, max_passes: int = 3) -> str:
+    """Return decode html entities."""
+
     decoded = text
     for _ in range(max_passes):
         next_value = html.unescape(decoded)
@@ -48,6 +55,8 @@ def decode_html_entities(text: str, max_passes: int = 3) -> str:
 
 
 def normalize_job_posting_text(text: str) -> str:
+    """Return normalize job posting text."""
+
     normalized = decode_html_entities(text)
     normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
     normalized = normalized.replace("\u00a0", " ")

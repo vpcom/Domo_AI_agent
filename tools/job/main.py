@@ -1,3 +1,8 @@
+"""Main module for the Domo assistant.
+
+Main tooling support for the Domo assistant.
+"""
+
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,6 +36,8 @@ OUTPUTS_ROOT = PATHS["outputs_root"]
 
 
 def build_state(output_folder: Path) -> JobState:
+    """Build state."""
+
     return JobState(
         folder=output_folder,
         raw_file=output_folder / "job_description_raw.txt",
@@ -42,6 +49,8 @@ def build_state(output_folder: Path) -> JobState:
 
 
 def run_state(state: JobState) -> None:
+    """Run state."""
+
     print(f"[job] start raw_folder={state.raw_file.parent}")
     if not state.raw_file.exists():
         raise FileNotFoundError(f"Missing input file: {state.raw_file}")
@@ -53,6 +62,8 @@ def run_state(state: JobState) -> None:
 
 
 def run_state_from_cleaned(state: JobState, cleaned_source_file: Path) -> None:
+    """Run state from cleaned."""
+
     print(f"[job] start cleaned_folder={cleaned_source_file.parent}")
     if not cleaned_source_file.exists():
         raise FileNotFoundError(f"Missing input file: {cleaned_source_file}")
@@ -67,6 +78,8 @@ def run_state_from_cleaned(state: JobState, cleaned_source_file: Path) -> None:
 
 
 def resolve_job_folder(job_folder_arg: str) -> tuple[Path, ResolvedLocalJobInputs]:
+    """Resolve job folder."""
+
     job_folder = resolve_job_folder_hint(job_folder_arg, ROOT, JOBS_ROOT)
 
     if not job_folder.exists():
@@ -91,6 +104,8 @@ def resolve_job_folder(job_folder_arg: str) -> tuple[Path, ResolvedLocalJobInput
 
 
 def _build_run_output_root() -> Path:
+    """Build run output root."""
+
     candidate_time = datetime.now().replace(microsecond=0)
     candidate = OUTPUTS_ROOT / candidate_time.strftime("%Y%m%d_%H%M%S")
     while candidate.exists():
@@ -103,6 +118,8 @@ def _stage_resolved_inputs(
     state: JobState,
     resolved_inputs: ResolvedLocalJobInputs,
 ) -> None:
+    """Return stage resolved inputs."""
+
     if resolved_inputs.mode == "raw":
         if resolved_inputs.raw_text is None:
             raise ValueError("Resolved raw inputs are missing raw text.")
@@ -113,6 +130,8 @@ def _stage_resolved_inputs(
 
 
 def run_single(job_folder_arg: str) -> None:
+    """Run single."""
+
     job_folder, resolved_inputs = resolve_job_folder(job_folder_arg)
     run_output_root = _build_run_output_root()
     output_folder = run_output_root / job_folder.name
@@ -128,6 +147,8 @@ def run_single(job_folder_arg: str) -> None:
 
 
 def run_batch() -> None:
+    """Run batch."""
+
     print("[run] mode=batch discovery")
     config = load_inputs_config()
     print(
@@ -165,6 +186,8 @@ def run_batch() -> None:
 
 
 def main() -> None:
+    """Return main."""
+
     if len(sys.argv) == 1:
         run_batch()
         return

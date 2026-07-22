@@ -1,3 +1,8 @@
+"""Models module for the Domo assistant.
+
+Models tooling support for the Domo assistant.
+"""
+
 
 # models.py contains a single dataclass, JobState, which groups together
 # a set of filesystem paths and little state (completed steps, errors).
@@ -22,6 +27,8 @@ class JobState:
 
     @property
     def is_done(self) -> bool:
+        """Return whether done."""
+
         return (
             self.raw_file.exists()
             and self.cleaned_file.exists()

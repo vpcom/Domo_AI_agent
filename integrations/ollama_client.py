@@ -1,3 +1,8 @@
+"""Ollama client module for the Domo assistant.
+
+Ollama client integration helpers for external services.
+"""
+
 from datetime import datetime, timedelta
 
 import requests
@@ -9,6 +14,8 @@ _circuit_open_until: datetime | None = None
 
 
 def call_llm(prompt: str, model: str | None = None) -> str:
+    """Call the configured LLM model with a text prompt."""
+
     global _failure_count, _circuit_open_until
 
     settings = get_ollama_config()

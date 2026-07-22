@@ -1,8 +1,4 @@
-"""Streamlit entry point for the Domo assistant application.
-
-This module defines the UI layout, the persistent conversation state,
-and the event handling logic for the assistant chat interface.
-"""
+"""Streamlit UI for the deterministic Domo agent."""
 
 from base64 import b64encode
 from html import escape
@@ -12,16 +8,15 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from assistant.domo_agent import (
-    apply_execution_result,
-    apply_turn_result,
-    create_conversation_state,
-    execute_pending_tool_call,
-    new_turn_id,
-    plan_chat_turn,
-    reset_conversation_state,
+    build_state_view_model,
+    create_agent_state,
+    create_chat_history,
+    create_ui_events,
+    handle_user_message,
+    reset_session,
 )
-from assistant.runtime import WORKFLOW_PARAMETER_KEYS
-from assistant.schemas import ActivityEvent, ContextValue, ConversationState
+from assistant.schemas import AgentState, ChatMessage, UiEvent
+
 
 APP_FILE = Path(__file__).resolve()
 PROJECT_ROOT = APP_FILE.parents[1]
@@ -31,10 +26,8 @@ ASSISTANT_AVATAR = str(IMG_DIR / "domo_icon.png")
 
 st.set_page_config(page_title="Personal Assistant", layout="wide")
 
-yellow_logo = b64encode(
-    (IMG_DIR / "domo_yellow.webp").read_bytes()).decode("ascii")
-blue_logo = b64encode(
-    (IMG_DIR / "domo_blue.webp").read_bytes()).decode("ascii")
+yellow_logo = b64encode((IMG_DIR / "domo_yellow.webp").read_bytes()).decode("ascii")
+blue_logo = b64encode((IMG_DIR / "domo_blue.webp").read_bytes()).decode("ascii")
 
 st.markdown(
     """
@@ -163,7 +156,6 @@ components.html(
         if (!anchor) continue;
 
         const container = anchor.closest('[data-testid="stElementContainer"]');
-
         if (container && !container.classList.contains("domo-sticky-context")) {{
           container.classList.add("domo-sticky-context");
         }}
@@ -182,116 +174,96 @@ components.html(
     height=0,
 )
 
-################################################################################
-# Runtime state initialization, application starts here
+if "agent_state" not in st.session_state:
+    st.session_state.agent_state = create_agent_state()
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = create_chat_history()
+if "ui_events" not in st.session_state:
+    st.session_state.ui_events = create_ui_events()
 
-# Conversation state is stored in Streamlit's session state to persist across reruns.
-if "conversation_state" not in st.session_state:
-    st.session_state.conversation_state = create_conversation_state()
-
-state: ConversationState = st.session_state.conversation_state
-
-################################################################################
-# Helper functions for main application layout and event handling
-
-
-def _format_value(value) -> str:
-    """Render a value for display in the context panel."""
-    if value is None or value == "":
-        return "<span class='domo-muted'>Not set</span>"
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    return escape(str(value))
+state: AgentState = st.session_state.agent_state
+chat_history: list[ChatMessage] = st.session_state.chat_history
+ui_events: list[UiEvent] = st.session_state.ui_events
 
 
-def _context_keys_for_display(active_workflow: str | None) -> dict[str, list[str]]:
-    """Return the grouped context keys to show based on active workflow."""
-    request_keys = [
-        "request_summary",
-        "selected_workflow",
-        "confirmation_state",
-        "run_status",
-        "open_question",
-    ]
-    parameter_keys = list(WORKFLOW_PARAMETER_KEYS.get(active_workflow, ()))
-    execution_keys = ["last_output_folder", "last_error"]
-    return {
-        "Request": request_keys,
-        "Parameters": parameter_keys,
-        "Execution": execution_keys,
-    }
+def _text_section_html(title: str, body: str) -> str:
+    """Render a styled section used in the right-hand state panel."""
 
-
-def _text_section_html(title: str, lines: list[str]) -> str:
-    """Render a titled HTML section for context values."""
-    if not lines:
-        body = "<div class='domo-section-line'><span class='domo-muted'>No retained values yet.</span></div>"
-    else:
-        body = "".join(
-            f"<div class='domo-section-line'>{line}</div>"
-            for line in lines
-        )
     return (
         "<div class='domo-section'>"
         f"<div class='domo-section-title'>{escape(title)}</div>"
-        f"{body}"
+        f"<div class='domo-section-line'>{body}</div>"
         "</div>"
     )
 
 
-def _context_line(value: ContextValue) -> str | None:
-    """Render a single context value line, truncating long strings."""
-    if value.value in (None, ""):
-        return None
-    rendered_value = value.value
-    if isinstance(rendered_value, str) and len(rendered_value) > 160:
-        rendered_value = rendered_value[:157] + "..."
-    return f"{escape(value.label)}: {_format_value(rendered_value)}"
+def _render_state_panel(current_state: AgentState) -> None:
+    """Render a derived, read-only view of the deterministic agent state."""
 
+    state_view = build_state_view_model(current_state)
 
-def _render_context_panel(current_state: ConversationState) -> None:
-    """Render the sidebar context panel with request, parameter, and execution values."""
-    active_workflow = current_state.context.request.get("selected_workflow")
-    workflow_name = None if active_workflow is None else active_workflow.value
-    keys_by_section = _context_keys_for_display(workflow_name)
+    plan_lines = [
+        (
+            f"Step {item['step_id']}: "
+            f"[{escape(str(item['type']))}] "
+            f"{escape(str(item['tool_name']))} "
+            f"({escape(str(item['status']))})"
+        )
+        for item in state_view["plan"]
+    ]
+    if not plan_lines:
+        plan_lines = ["<span class='domo-muted'>No plan prepared yet.</span>"]
 
-    sections_html: list[str] = []
-    for section_name, keys in keys_by_section.items():
-        section_map = {
-            "Request": current_state.context.request,
-            "Parameters": current_state.context.parameters,
-            "Execution": current_state.context.execution,
-        }[section_name]
-        lines: list[str] = []
-        for key in keys:
-            value = section_map.get(key)
-            if value is None:
-                continue
-            line = _context_line(value)
-            if line is not None:
-                lines.append(line)
-        sections_html.append(_text_section_html(section_name, lines))
+    artifact_lines = [
+        f"{escape(artifact['kind'])}: {escape(artifact['path'])}"
+        for artifact in state_view["memory"]["artifacts"]
+    ]
+    if not artifact_lines:
+        artifact_lines = ["<span class='domo-muted'>No artifacts yet.</span>"]
+
+    sections = [
+        _text_section_html("Status", escape(str(state_view["status"]))),
+        _text_section_html(
+            "Goal",
+            (
+                f"User input: {escape(state_view['goal']['user_input'])}<br/>"
+                f"Normalized: {escape(state_view['goal']['normalized_goal'])}"
+            ),
+        ),
+        _text_section_html("Current Step", escape(str(state_view["current_step"]))),
+        _text_section_html("Plan", "<br/>".join(plan_lines)),
+        _text_section_html("Artifacts", "<br/>".join(artifact_lines)),
+        _text_section_html(
+            "Last Error",
+            escape(str(state_view["last_error"]))
+            if state_view["last_error"]
+            else "<span class='domo-muted'>None</span>",
+        ),
+    ]
 
     st.markdown(
         (
             "<div id='domo-context-anchor'></div>"
             "<div>"
-            "<h3 class='domo-panel-heading'>Context</h3>"
-            f"{''.join(sections_html)}"
+            "<h3 class='domo-panel-heading'>Agent State</h3>"
+            f"{''.join(sections)}"
             "</div>"
         ),
         unsafe_allow_html=True,
     )
 
 
-def _render_chat_panel(current_state: ConversationState) -> None:
-    """Render the main chat history panel."""
+def _render_chat_panel(messages: list[ChatMessage]) -> None:
+    """Render the chat column and collapse long user messages."""
+
     st.subheader("Chat")
-    if not current_state.messages:
-        st.info("Start with a request. Domo will clarify the task, retain parameters, and ask for confirmation before running anything.")
+    if not messages:
+        st.info(
+            "Describe a task. Domo will prepare a deterministic plan and execute it when policy allows."
+        )
         return
 
-    for message in current_state.messages:
+    for message in messages:
         avatar = USER_AVATAR if message.role == "user" else ASSISTANT_AVATAR
         with st.chat_message(message.role, avatar=avatar):
             if message.role == "user" and _should_collapse_user_message(message.content):
@@ -309,84 +281,84 @@ def _render_chat_panel(current_state: ConversationState) -> None:
                 st.markdown(message.content)
 
 
-def _should_collapse_user_message(content: str) -> bool:
-    """Decide whether a long user message should be collapsed in the UI."""
-    non_empty_lines = [line for line in content.splitlines() if line.strip()]
-    return len(non_empty_lines) > 7 or len(content) > 500
+def _render_activity_panel(events: list[UiEvent]) -> None:
+    """Render UI-owned planner, execution, and state events."""
 
-
-def _activity_log_line(event: ActivityEvent) -> str:
-    """Format an activity event into a single display line."""
-    timestamp = event.timestamp.astimezone().strftime("%H:%M:%S")
-    category = event.category.capitalize()
-    summary = escape(event.summary.rstrip("."))
-    detail = ""
-    if event.detail and not event.raw_lines:
-        detail = f": {escape(event.detail)}"
-    return f"{escape(timestamp)}  {escape(category)}: {summary}{detail}"
-
-
-def _render_activity_panel(current_state: ConversationState) -> None:
-    """Render the activity log section for workflow and planner events."""
     st.subheader("Activity Logs")
-    if not current_state.activity_events:
+    if not events:
         st.caption("No activity recorded yet.")
         return
 
-    for index, event in enumerate(current_state.activity_events, start=1):
-        line = _activity_log_line(event)
+    for event in events:
+        timestamp = event.timestamp.astimezone().strftime("%H:%M:%S")
+        detail = f": {escape(event.detail)}" if event.detail else ""
+        line = (
+            f"{escape(timestamp)}  "
+            f"{escape(event.category.capitalize())}: "
+            f"{escape(event.message)}{detail}"
+        )
         st.markdown(
             f"<div class='domo-section-line domo-log-line'>{line}</div>",
             unsafe_allow_html=True,
         )
-        if event.raw_lines:
-            with st.expander(_activity_expander_label(event, index)):
-                st.code("".join(event.raw_lines), language="text")
+        if event.expanded_text:
+            with st.expander(_activity_expander_label(event)):
+                language = "json" if _looks_like_json(event.expanded_text) else "text"
+                st.code(event.expanded_text, language=language)
 
 
-def _activity_expander_label(event: ActivityEvent, index: int) -> str:
-    """Return a descriptive label for raw activity event details."""
-    summary = event.summary.rstrip(".")
-    if summary == "Planner prompt prepared":
+def _should_collapse_user_message(content: str) -> bool:
+    """Collapse long user messages to keep the chat column readable."""
+
+    non_empty_lines = [line for line in content.splitlines() if line.strip()]
+    return len(non_empty_lines) > 7 or len(content) > 500
+
+
+def _activity_expander_label(event: UiEvent) -> str:
+    """Return a stable expander label for detailed activity entries."""
+
+    if event.category == "state":
+        return "State"
+    if "prompt" in event.message.lower():
         return "Prompt"
-    if summary == "Planner raw response received":
+    if "response" in event.message.lower():
         return "Response"
-    return f"Details {index}: {summary or 'Event'}"
+    return "Details"
 
-################################################################################
-# Main application layout and event handling
+
+def _looks_like_json(value: str) -> bool:
+    """Use JSON syntax highlighting when the payload appears to be structured."""
+
+    stripped = value.strip()
+    return stripped.startswith("{") or stripped.startswith("[")
 
 
 header_left, header_right = st.columns([5, 1])
 with header_right:
     if st.button("Reset Conversation", use_container_width=True):
-        reset_conversation_state(state)
+        reset_session(state, chat_history, ui_events)
         st.rerun()
 
 chat_col, context_col = st.columns([1.8, 1.1], gap="large")
 
 with chat_col:
-    _render_chat_panel(state)
+    _render_chat_panel(chat_history)
     prompt = st.chat_input(
         "Describe what you want to do.",
-        disabled=state.is_executing,
+        disabled=state.status == "executing",
     )
 
 with context_col:
-    _render_context_panel(state)
+    _render_state_panel(state)
 
 st.divider()
-_render_activity_panel(state)
+_render_activity_panel(ui_events)
 
 if prompt:
-    turn_id = new_turn_id()
-    result = plan_chat_turn(state, prompt, turn_id=turn_id)
-    apply_turn_result(state, prompt, result, turn_id=turn_id)
-
-    if result.turn_intent == "execute":
-        with st.spinner("Running workflow..."):
-            execution_result = execute_pending_tool_call(
-                state, turn_id=turn_id)
-        apply_execution_result(state, execution_result, turn_id=turn_id)
-
+    with chat_col:
+        with st.chat_message("user", avatar=USER_AVATAR):
+            st.markdown(prompt)
+        with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+            with st.spinner("Working..."):
+                handle_user_message(state, chat_history, ui_events, prompt)
     st.rerun()

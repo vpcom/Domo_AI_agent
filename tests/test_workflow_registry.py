@@ -1,120 +1,54 @@
 import unittest
-from unittest.mock import patch
 
-from assistant.config import get_config_path, get_display_path
-from assistant.registry import TOOLS, WORKFLOWS
+from assistant.registry import COMMANDS, LLM_TASKS, READ_TOOLS, TOOLS, TRANSFORM_TOOLS, WRITE_TOOLS
 
 
 class WorkflowRegistryTests(unittest.TestCase):
-    def test_registry_uses_workflow_entrypoints_for_all_actions(self):
-        self.assertIs(TOOLS["run_job_agent"].executor, WORKFLOWS["run_job_agent"])
-        self.assertIs(TOOLS["create_job_files"].executor, WORKFLOWS["create_job_files"])
-        self.assertIs(TOOLS["match_cv"].executor, WORKFLOWS["match_cv"])
-        self.assertIs(TOOLS["search_web"].executor, WORKFLOWS["search_web"])
-        self.assertIs(TOOLS["copy_file"].executor, WORKFLOWS["copy_file"])
-        self.assertIs(TOOLS["write_document"].executor, WORKFLOWS["write_document"])
-        self.assertIs(TOOLS["read_documents"].executor, WORKFLOWS["read_documents"])
-        self.assertIs(
-            TOOLS["summarize_documents"].executor,
-            WORKFLOWS["summarize_documents"],
-        )
-        self.assertIs(
-            TOOLS["evaluate_documents"].executor,
-            WORKFLOWS["evaluate_documents"],
-        )
+    def test_tool_registry_exposes_strict_capabilities(self):
+        self.assertIn("search_web", TOOLS)
+        self.assertIn("write_document", TOOLS)
+        self.assertIn("read_documents", TOOLS)
+        self.assertIn("inspect_path", TOOLS)
+        self.assertIn("list_directory", TOOLS)
+        self.assertIn("read_text_file", TOOLS)
+        self.assertIn("read_json_file", TOOLS)
+        self.assertIn("resolve_job_folder_hint", TOOLS)
+        self.assertIn("clean_job_description", TOOLS)
+        self.assertIn("write_json_file", TOOLS)
+        self.assertIn("write_search_results", TOOLS)
+        self.assertIn("write_generated_documents", TOOLS)
+        self.assertNotIn("summarize_documents", TOOLS)
+        self.assertNotIn("evaluate_documents", TOOLS)
+        self.assertNotIn("match_cv", TOOLS)
 
-    def test_run_job_agent_workflow_has_consistent_wrapper_output(self):
-        with patch(
-            "workflows.run_job_agent_workflow.run_job_agent",
-            return_value=iter(["tool chunk\n"]),
-        ):
-            chunks = list(TOOLS["run_job_agent"].executor(folder_path=None))
+        for spec in TOOLS.values():
+            self.assertTrue(callable(spec.function))
+            self.assertTrue(spec.allowed)
+            self.assertTrue(spec.description)
+            self.assertIsNotNone(spec.input_model)
+            self.assertFalse(spec.account_access)
+            self.assertTrue(spec.group)
+            self.assertTrue(spec.kind)
+            self.assertTrue(spec.approval)
 
-        self.assertEqual(chunks[0], "Starting job workflow...\n")
-        self.assertEqual(
-            chunks[1],
-            f"Running default online job search from {get_display_path(get_config_path())}\n",
-        )
-        self.assertEqual(chunks[2], "tool chunk\n")
-        self.assertEqual(chunks[-1], "Workflow finished.\n")
+    def test_tool_registry_groups_are_exposed(self):
+        self.assertIn("search_web", READ_TOOLS)
+        self.assertIn("clean_job_description", TRANSFORM_TOOLS)
+        self.assertIn("write_document", WRITE_TOOLS)
+        self.assertIn("run_job_agent", COMMANDS)
 
-    def test_run_job_agent_workflow_surfaces_search_overrides(self):
-        with patch(
-            "workflows.run_job_agent_workflow.run_job_agent",
-            return_value=iter(["tool chunk\n"]),
-        ):
-            chunks = list(
-                TOOLS["run_job_agent"].executor(
-                    role="Application Engineer",
-                    location="City Alpha",
-                    ignore_location=True,
-                    remote_only=False,
-                )
-            )
+    def test_llm_task_registry_exposes_explicit_llm_steps(self):
+        self.assertIn("answer_question", LLM_TASKS)
+        self.assertIn("summarize_text", LLM_TASKS)
+        self.assertIn("evaluate_text", LLM_TASKS)
+        self.assertIn("generate_document_set", LLM_TASKS)
+        self.assertIn("rank_cvs", LLM_TASKS)
 
-        self.assertEqual(chunks[0], "Starting job workflow...\n")
-        self.assertEqual(
-            chunks[1],
-            f"Running default online job search from {get_display_path(get_config_path())}\n",
-        )
-        self.assertEqual(
-            chunks[2],
-            "Search overrides: role=Application Engineer, location=City Alpha, ignore_location=True, remote_only=False\n",
-        )
-        self.assertEqual(chunks[3], "tool chunk\n")
-        self.assertEqual(chunks[-1], "Workflow finished.\n")
-
-    def test_match_cv_workflow_has_consistent_wrapper_output(self):
-        with patch(
-            "workflows.match_cv_workflow.match_cv",
-            return_value=iter(["tool chunk\n"]),
-        ):
-            chunks = list(
-                TOOLS["match_cv"].executor(
-                    job_folder="/tmp/job-folder",
-                    cvs_folder="/tmp/cvs-folder",
-                )
-            )
-
-        self.assertEqual(chunks[0], "Starting CV matching workflow...\n")
-        self.assertEqual(chunks[1], "Resolved job input: /tmp/job-folder\n")
-        self.assertEqual(chunks[2], "Resolved CV input: /tmp/cvs-folder\n")
-        self.assertEqual(chunks[3], "tool chunk\n")
-        self.assertEqual(chunks[-1], "Workflow finished.\n")
-
-    def test_search_web_workflow_has_consistent_wrapper_output(self):
-        with patch(
-            "workflows.web_search_workflow.search_web",
-            return_value=iter(["tool chunk\n"]),
-        ):
-            chunks = list(
-                TOOLS["search_web"].executor(
-                    query="example query",
-                    max_results=3,
-                )
-            )
-
-        self.assertEqual(chunks[0], "Starting web search workflow...\n")
-        self.assertEqual(chunks[1], "Query: example query\n")
-        self.assertEqual(chunks[2], "Max results: 3\n")
-        self.assertEqual(chunks[3], "tool chunk\n")
-        self.assertEqual(chunks[-1], "Workflow finished.\n")
-
-    def test_create_job_files_workflow_has_consistent_wrapper_output(self):
-        with patch(
-            "workflows.create_job_files_workflow.create_job_files",
-            return_value=iter(["tool chunk\n"]),
-        ):
-            chunks = list(
-                TOOLS["create_job_files"].executor(
-                    job_folder="/tmp/job-folder",
-                )
-            )
-
-        self.assertEqual(chunks[0], "Starting create_job_files workflow...\n")
-        self.assertEqual(chunks[1], "Resolved job input: /tmp/job-folder\n")
-        self.assertEqual(chunks[2], "tool chunk\n")
-        self.assertEqual(chunks[-1], "Workflow finished.\n")
+        for spec in LLM_TASKS.values():
+            self.assertTrue(callable(spec.function))
+            self.assertTrue(spec.allowed)
+            self.assertTrue(spec.description)
+            self.assertIsNotNone(spec.input_model)
 
 
 if __name__ == "__main__":

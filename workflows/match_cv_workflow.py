@@ -1,8 +1,15 @@
+"""Match cv workflow module for the Domo assistant.
+
+Match cv workflow workflow definitions for the Domo assistant.
+"""
+
 from assistant.config import get_display_path, get_paths, is_debug_enabled
 from tools.job.match_cv import match_cv
 
 
 def run_match_cv_workflow(job_folder: str, cvs_folder: str | None = None):
+    """Run match cv workflow."""
+
     resolved_cvs_input = cvs_folder or get_display_path(get_paths()["cvs_root"])
     yield "Starting CV matching workflow...\n"
     yield f"Resolved job input: {job_folder}\n"

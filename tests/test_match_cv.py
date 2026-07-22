@@ -3,7 +3,10 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from reportlab.pdfgen import canvas
+try:
+    from reportlab.pdfgen import canvas
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    canvas = None
 
 from assistant.config import get_paths
 from tools.job import match_cv
@@ -18,6 +21,7 @@ def _write_pdf(file_path: Path, lines: list[str]) -> None:
     pdf.save()
 
 
+@unittest.skipUnless(canvas is not None, "reportlab is required for PDF fixture tests")
 class MatchCvParsingTests(unittest.TestCase):
     def test_interpret_llm_evaluation_parses_json_directly(self):
         response = """

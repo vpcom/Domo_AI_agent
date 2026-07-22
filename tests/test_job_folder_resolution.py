@@ -3,7 +3,10 @@ import unittest
 from datetime import date
 from pathlib import Path
 
-from reportlab.pdfgen import canvas
+try:
+    from reportlab.pdfgen import canvas
+except ModuleNotFoundError:  # pragma: no cover - environment dependent
+    canvas = None
 
 from tools.job.job_folder_resolution import (
     find_best_matching_job_folder,
@@ -12,6 +15,7 @@ from tools.job.job_folder_resolution import (
 from tools.job.local_job_inputs import infer_local_pdf_metadata, resolve_local_job_inputs
 
 
+@unittest.skipUnless(canvas is not None, "reportlab is required for PDF fixture tests")
 class JobFolderResolutionTests(unittest.TestCase):
     def test_find_best_matching_job_folder_prefers_closest_date(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

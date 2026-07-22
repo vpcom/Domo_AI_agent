@@ -23,18 +23,38 @@ Run a workflow directly with:
 .venv/bin/python -m tools.<name_of_tool>.main
 ```
 
+Run tests with:
+
+```bash
+PYTHONPATH=. pytest
+```
+
 Notes:
 
 - Open the local URL shown by Streamlit, typically `http://localhost:8051`.
-- The Streamlit assistant now uses a session-scoped chat UI with three panes:
-  - chat for clarification and confirmation
-  - a context panel showing retained parameter values, their source, and their status
-  - an activity panel showing agent decisions and workflow progress, with raw workflow output available per run
-- Domo always asks for confirmation in chat before executing a workflow.
+- The Streamlit assistant uses a session-scoped UI with three panes:
+  - chat history
+  - a derived agent-state panel
+  - an activity log
+- The core agent is now a deterministic plan executor with a fixed `AgentState`:
+  - `status`
+  - `goal`
+  - `plan`
+  - `current_step`
+  - `memory`
+  - `last_error`
+- Domo prepares a full plan first, waits for approval, and then executes step by step.
+- The planner uses a fixed capability registry. Important capability groups include:
+  - read tools such as web search and local document readers
+  - LLM tasks such as direct answers, summarization, evaluation, CV ranking, and generated document sets
+  - write tools such as single-document writes, JSON writes, search-result writes, and generated multi-document writes
+- For requests like “create a file per result,” Domo can generate structured `filename`/`content` records and write them with `write_generated_documents`.
+- Chat history and UI logs are stored outside the core agent state.
 - This repo must be run with the local [`.venv`](/Users/z/dev/domo/domo/.venv), not a global Streamlit install.
 - `./run_app.sh` uses `.venv/bin/streamlit` explicitly, which avoids `ModuleNotFoundError` from Anaconda/global Python.
 - If you prefer the raw command, use `.venv/bin/streamlit run app/streamlit_app.py --server.port 8051`.
 - Use the `streamlit` CLI to run the app, not `python app/streamlit_app.py`.
+- See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Structure
 
@@ -49,10 +69,12 @@ domo/
 │   └── streamlit_app.py
 ├── assistant/
 │   ├── audit.py
+│   ├── controller.py
 │   ├── domo_agent.py
+│   ├── llm_tasks.py
+│   ├── planner.py
 │   ├── policy.py
 │   ├── registry.py
-│   ├── router.py
 │   ├── runtime.py
 │   └── schemas.py
 ├── integrations/

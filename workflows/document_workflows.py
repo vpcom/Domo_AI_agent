@@ -1,3 +1,8 @@
+"""Document workflows module for the Domo assistant.
+
+Document workflows workflow definitions for the Domo assistant.
+"""
+
 from assistant.config import is_debug_enabled
 from tools.document_actions import (
     copy_file,
@@ -9,6 +14,8 @@ from tools.document_actions import (
 
 
 def run_copy_file_workflow(source_path: str, destination_path: str):
+    """Run copy file workflow."""
+
     yield "Starting copy_file workflow...\n"
     yield f"Resolved source input: {source_path}\n"
     yield f"Resolved destination input: {destination_path}\n"
@@ -19,6 +26,8 @@ def run_copy_file_workflow(source_path: str, destination_path: str):
 
 
 def run_write_document_workflow(destination_path: str, content: str):
+    """Run write document workflow."""
+
     yield "Starting write_document workflow...\n"
     yield f"Resolved destination input: {destination_path}\n"
     if is_debug_enabled():
@@ -28,6 +37,8 @@ def run_write_document_workflow(destination_path: str, content: str):
 
 
 def run_read_documents_workflow(input_path: str, recursive: bool | None = None):
+    """Run read documents workflow."""
+
     yield "Starting read_documents workflow...\n"
     yield f"Resolved input: {input_path}\n"
     if recursive is not None:
@@ -44,6 +55,8 @@ def run_summarize_documents_workflow(
     output_path: str | None = None,
     recursive: bool | None = None,
 ):
+    """Run summarize documents workflow."""
+
     yield "Starting summarize_documents workflow...\n"
     yield f"Resolved input: {input_path}\n"
     if output_path:
@@ -69,6 +82,8 @@ def run_evaluate_documents_workflow(
     output_path: str | None = None,
     recursive: bool | None = None,
 ):
+    """Run evaluate documents workflow."""
+
     yield "Starting evaluate_documents workflow...\n"
     yield f"Resolved input: {input_path}\n"
     if output_path:
